@@ -20,6 +20,10 @@ concurrency:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      # After this moment the site is replaced by an "offline" page (checked on each 3-hourly rebuild).
+      # Delete this line to keep the site up.
+      TAKEDOWN_AT: "2026-09-23T02:30:00Z"
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
