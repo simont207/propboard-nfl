@@ -18,6 +18,7 @@
     border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   .logo { font-weight: 800; font-size: 20px; letter-spacing: -.02em; }
   .logo b { color: var(--green); }
+  a.logo { color: inherit; text-decoration: none; display: inline-block; cursor: pointer; }
   .spacer { flex: 1; }
   .btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
     padding: 7px 12px; cursor: pointer; }
@@ -282,7 +283,7 @@ window.onerror = function (msg, src, line) {
 };
 </script>
 <header>
-  <div><div class="logo">Prop<b>Board</b> NFL</div><div class="muted small" id="sub">Loading…</div></div>
+  <div><a class="logo" id="logoHome" href="#/" title="Back to the home screen">Prop<b>Board</b> NFL</a><div class="muted small" id="sub">Loading…</div></div>
   <div class="search">
     <input type="text" id="gsearch" placeholder="Search players, teams, props   ( / )" autocomplete="off" disabled>
     <div class="results" id="gresults" hidden></div>
@@ -1120,6 +1121,16 @@ gs.onkeydown = e => {
 document.addEventListener('keydown', e => {
   if (e.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); gs.focus(); }
 });
+
+// clicking the PropBoard NFL title goes back to the home screen (the board, with filters cleared, scrolled to the top)
+function goHome() {
+  Object.assign(F, { game: '', team: '', pos: '', q: '', tierOnly: false });
+  $('#team').value = ''; $('#pos').value = ''; $('#q').value = ''; $('#tierOnly').checked = false;
+  closeAll(); route.y = 0;
+  if (location.hash && location.hash !== '#/') location.hash = '#/';
+  render(); window.scrollTo(0, 0);
+}
+$('#logoHome').onclick = e => { e.preventDefault(); goHome(); };
 
 window.addEventListener('hashchange', route);
 init();
