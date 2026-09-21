@@ -187,19 +187,35 @@ def load_injuries():
 
 
 # ------------------------------------------------------------------- ESPN ---
+ESPN_CDN = "https://cdn.espn.com/core/nfl/scoreboard"
+
+
+def espn_scoreboard(week=None):
+    """ESPN's main feed refuses some cloud servers (GitHub's included), so fall back to their CDN copy."""
+    params = {"week": week, "seasontype": 2, "dates": SEASON} if week else None
+    try:
+        data = requests.get(ESPN, params=params, headers=HTTP, timeout=20).json()
+        if "events" in data:
+            return data
+    except Exception as e:
+        print("ESPN main feed unavailable, using the CDN copy:", str(e)[:80])
+    cdn = {"xhr": 1, "limit": 50}
+    if week:
+        cdn.update(week=week, year=SEASON, seasontype=2)
+    return requests.get(ESPN_CDN, params=cdn, headers=HTTP, timeout=30).json()["content"]["sbData"]
+
+
 def get_games():
     """Upcoming/in-progress games from the current NFL week and the next one."""
     try:
-        cur = requests.get(ESPN, headers=HTTP, timeout=20).json()
+        cur = espn_scoreboard()
     except Exception as e:
         print("ESPN failed:", e)
         return []
     week = cur["week"]["number"]
     pages = [cur]
     try:
-        pages.append(requests.get(
-            ESPN, params={"week": week + 1, "seasontype": 2, "dates": SEASON},
-            headers=HTTP, timeout=20).json())
+        pages.append(espn_scoreboard(week + 1))
     except Exception:
         pass
     games, seen = [], set()
