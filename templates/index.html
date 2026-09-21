@@ -264,9 +264,23 @@
   .disc { max-width: 1600px; margin: 0 auto; padding: 0 20px 40px; color: var(--muted); font-size: 12px; line-height: 1.6; }
   .disc a { color: var(--muted); }
   .public #btnRefresh, .public #btnLines, .public #pvLines, .public #modal { display: none !important; }
+  #errbar { position: fixed; top: 0; left: 0; right: 0; z-index: 60; background: #5b1d1d; color: #ffd7d7; padding: 10px 14px;
+    font-size: 12px; line-height: 1.4; cursor: pointer; }
+  #errbar[hidden] { display: none !important; }
+  /* phones: no double-tap-to-zoom delay, so quick taps on lines / buttons always register once */
+  button, a, select, input, .alt, .pill, .chip, .game, .pv-item, tr.row, .win, .gopick { touch-action: manipulation; }
+  .gopick { display: block; width: 100%; text-align: left; margin-bottom: 8px; padding: 13px 14px; font-size: 15px; }
 </style>
 </head>
 <body>
+<div id="errbar" hidden></div>
+<script>
+window.onerror = function (msg, src, line) {
+  var b = document.getElementById('errbar'); if (!b) return;
+  b.textContent = 'Something broke: ' + msg + ' (line ' + line + '). Tap to hide. Screenshot this and send it to Claude.';
+  b.hidden = false; b.onclick = function () { b.hidden = true; };
+};
+</script>
 <header>
   <div><div class="logo">Prop<b>Board</b> NFL</div><div class="muted small" id="sub">Loading…</div></div>
   <div class="search">
@@ -975,6 +989,12 @@ function legStats(l) {
   const v = p.log.map(x => x[3]), rt = k => { const a = v.slice(-k); return { hits: a.filter(x => x >= l.thr).length, n: a.length }; };
   return { l5: rt(5), l10: rt(10) };
 }
+function emptySlipHtml() {
+  if (!board || !board.games.length) return '<div class="empty">Open a game and tap an alt line to add it.</div>';
+  return `<div style="padding:16px"><b>Your parlay is empty.</b>
+    <div class="muted" style="margin:4px 0 14px">Pick a game, then tap the alt lines you want to add.</div>
+    ${board.games.map(g => `<button class="btn gopick" data-g="${esc(g.id)}">${esc(teamCode(g.away))} @ ${esc(teamCode(g.home))} <span class="muted">· ${fmtTime(g.date)}</span></button>`).join('')}</div>`;
+}
 function renderSlip() {
   $('#slipN').textContent = SLIP.length;
   document.body.classList.toggle('slip-open', SLIP_OPEN);
@@ -997,7 +1017,7 @@ function renderSlip() {
   $('#slip').innerHTML = `
     <div class="slip-h"><b>Parlay slip · ${SLIP.length} leg${SLIP.length === 1 ? '' : 's'}</b>
       <span>${SLIP.length ? '<button class="btn" id="slipClear">Clear</button> ' : ''}<button class="btn" id="slipClose">✕</button></span></div>
-    <div class="slip-legs">${legs || '<div class="empty">Open a game and click an alt line to add it.</div>'}</div>
+    <div class="slip-legs">${legs || emptySlipHtml()}</div>
     ${SLIP.length ? `<div class="slip-f">
       <div class="muted small">Rough chance every leg hits</div>
       <div class="bignum">${haveEst ? (est * 100).toFixed(est < 0.1 ? 1 : 0) + '%' : '–'}</div>
@@ -1011,6 +1031,7 @@ function renderSlip() {
   if ($('#slipClear')) $('#slipClear').onclick = () => { SLIP = []; saveSlip(); renderSlip(); refreshChips(); };
   if ($('#stake')) $('#stake').onchange = e => { STAKE = Math.max(1, +e.target.value || 10); saveSlip(); renderSlip(); };
   $('#slipClose').onclick = () => { SLIP_OPEN = false; renderSlip(); };
+  document.querySelectorAll('#slip .gopick').forEach(b => b.onclick = () => { SLIP_OPEN = false; renderSlip(); location.hash = '#/g/' + b.dataset.g; });
   if ($('#slipKeep')) $('#slipKeep').onclick = () => { SLIP_OPEN = false; renderSlip(); };
 }
 $('#btnSlip').onclick = () => { SLIP_OPEN = !SLIP_OPEN; renderSlip(); };
