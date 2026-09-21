@@ -214,6 +214,7 @@
   .alt small { display: block; font-weight: 500; font-size: 10px; color: var(--muted); }
   .alt:hover { border-color: var(--green); }
   .alt.full { border-color: #1f6b3d; } .alt.full small { color: var(--green); }
+  .alt.near { border-style: dashed; border-color: #7a5d12; } .alt.near small { color: var(--amber); }
   .alt.on { background: var(--green); color: #06210f; border-color: var(--green); } .alt.on small { color: #06210f; }
 
   /* parlay slip */
@@ -857,8 +858,13 @@ function ladder(market, vals) {
 function altChips(p) {
   const vals = p.log.slice(-GV.win).map(x => x[3]), n = vals.length;
   if (n < Math.min(GV.win, 3)) return [];
-  return ladder(p.market, vals).map(t => ({ t, hits: vals.filter(v => v >= t).length, n }))
-    .filter(c => c.hits >= c.n - GV.miss).sort((a, b) => b.t - a.t).slice(0, 5);
+  const all = ladder(p.market, vals).map(t => ({ t, hits: vals.filter(v => v >= t).length, n }));   // low -> high
+  const chips = all.filter(c => c.hits >= c.n - GV.miss).sort((a, b) => b.t - a.t).slice(0, 5);
+  if (!chips.length) return [];
+  // also show the next line up (with its record) when he cleared it in at least half of the games
+  const next = all.find(c => c.t > chips[0].t);
+  if (next && next.hits >= Math.ceil(n / 2)) chips.unshift({ ...next, near: true });
+  return chips;
 }
 const legText = l => l.market === 'any_td' ? (l.thr === 1 ? 'Anytime TD' : `${l.thr}+ TDs`)
   : l.market === 'pass_tds' ? `${l.thr}+ Pass TDs`
@@ -897,13 +903,14 @@ function renderGame(g) {
       <label>Must have cleared <select id="gvMiss"><option value="0" ${GV.miss === 0 ? 'selected' : ''}>every game</option><option value="1" ${GV.miss === 1 ? 'selected' : ''}>all but one game</option></select></label>
     </div>
     <div class="note" style="margin:0 0 4px">Each button is an alt line ("60+" = 60 or more) he cleared in <b>${GV.miss ? 'all but one of' : 'each of'} his ${winTxt} games</b>, with the record under it.
-      Click a line to add it to your parlay (click again to remove; picking a different line for the same stat swaps it).</div>
+      Click a line to add it to your parlay (click again to remove; picking a different line for the same stat swaps it).
+      A <span style="color:var(--amber)">dashed amber</span> button is the next line up, shown when he cleared it in at least half of those games.</div>
     <div class="gcards">${players.map(({ p, rows }) => `
       <div class="pcard"><div class="ph">${pimg(p.player, p.img, 42)}
         <div><a href="#/p/${encodeURIComponent(rows[0].p.id)}">${esc(p.player)}</a>${p.inj ? `<span class="tag ${esc(p.inj)}">${esc(p.inj[0])}</span>` : ''}
         <div class="muted" style="font-size:12px">${esc(p.pos)} · ${esc(p.team)}</div></div></div>
         ${rows.map(({ p: q, chips }) => `<div class="mrow"><div class="ml">${q.market === 'q1_rec' ? 'Q1 receiving yards' : q.market === 'q1_rush' ? 'Q1 rushing yards' : esc(q.label)}</div><div class="alts">
-          ${chips.map(c => `<button class="alt ${inSlip(q, c.t) ? 'on' : c.hits === c.n ? 'full' : ''}" data-id="${esc(q.id)}" data-t="${c.t}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div></div>`).join('')}
+          ${chips.map(c => `<button class="alt ${inSlip(q, c.t) ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(q.id)}" data-t="${c.t}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div></div>`).join('')}
       </div>`).join('') || `<div class="empty" style="grid-column:1/-1">No alt lines cleared ${GV.miss ? 'in all but one of' : 'in every one of'} the ${winTxt} games. Try "all but one game" or a longer window.</div>`}</div>`;
   document.querySelectorAll('#gameView [data-m]').forEach(el => el.onclick = () => { GV.market = el.dataset.m; renderGame(g); });
   document.querySelectorAll('#gvTeam button').forEach(el => el.onclick = () => { GV.team = el.dataset.t; renderGame(g); });
