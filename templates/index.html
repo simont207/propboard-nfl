@@ -301,6 +301,7 @@ window.onerror = function (msg, src, line) {
   <div class="note" style="margin:-4px 0 10px">Click a game to see every player's alt lines and build a parlay.</div>
 
   <div class="pills" id="markets"></div>
+  <div class="note" style="margin:-4px 0 10px">Tap a prop to toggle it on or off — pick just one or several at once. Tap <b>All props</b> to clear the picks and show everything.</div>
   <div class="filters">
     <input type="text" id="q" placeholder="Search player…">
     <select id="pos"><option value="">All positions</option>
@@ -376,7 +377,7 @@ const MARKETS = [['all','All props'],['rec_yds','Rec Yds'],['rec','Receptions'],
   ['rush_rec_yds','Rush+Rec Yds'],['pass_yds','Pass Yds'],['pass_tds','Pass TDs'],['any_td','Anytime TD'],['q1_rec','Q1 Rec 5+'],['q1_rush','Q1 Rush 5+']];
 
 let board = null;
-const F = { market: 'rec_yds', pos: '', team: '', game: '', q: '', side: 'over', win: 'l10',
+const F = { markets: new Set(['rec_yds']), pos: '', team: '', game: '', q: '', side: 'over', win: 'l10',
             minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1 };
 let overrides = {};
 try { overrides = JSON.parse(localStorage.getItem('pb_lines') || '{}'); } catch (e) {}
@@ -468,24 +469,34 @@ const BASE_COLS = [
   ['l5', 'L5'], ['l10', 'L10'], ['season', 'Season'], ['h2h', 'vs Opp'],
   ['avg', 'Avg L10'], ['opp_rank', 'Matchup rank*'], ['trend', 'Last 10'],
 ];
-const isQ1 = () => F.market.startsWith('q1_');
-const cols = () => { const c = BASE_COLS.slice(); if (isQ1()) c.splice(3, 0, ['tier', 'Tier']); return c; };
+const activeQ1 = () => [...F.markets].some(k => k.startsWith('q1_'));
+const cols = () => { const c = BASE_COLS.slice(); if (activeQ1()) c.splice(3, 0, ['tier', 'Tier']); return c; };
 const TIER_ICON = { LOCK: '🔒', STRONG: '🔥', LEAN: '⭐', OUT: '⛔' };
 const tierBadge = t => t ? `<span class="tier t${t}">${TIER_ICON[t]} ${t}</span>` : '<span class="tier tNone">below LEAN</span>';
 const tierCell = p => p.tier
   ? `<td>${tierBadge(p.tier.tier)}${p.tier.score != null ? ` <small class="muted">${p.tier.score.toFixed(2)}</small>` : ''}</td>`
   : `<td class="n" title="Tiers cover each team's top WR and top RB only">–</td>`;
 function openGameOnBoard(id, fromOtherView) {
-  Object.assign(F, { game: id, market: 'all', team: '' });
+  F.game = id; F.markets.clear(); F.team = '';
   $('#team').value = '';
   if (fromOtherView) location.hash = '#/';
   render();
   if (fromOtherView) window.scrollTo(0, 0);
 }
-function setMarket(k, doRender = true) {
-  F.market = k;
-  if (k.startsWith('q1_')) { F.sort = 'tier'; F.dir = -1; }
-  else if (F.sort === 'tier') { F.sort = 'hit'; F.dir = -1; }
+function syncSortForMarkets() {
+  if (activeQ1() && F.sort !== 'tier') { F.sort = 'tier'; F.dir = -1; }
+  else if (!activeQ1() && F.sort === 'tier') { F.sort = 'hit'; F.dir = -1; }
+}
+function toggleMarket(k) {          // pills on the board: tap to add/remove, pick one or several
+  if (k === 'all') F.markets.clear();
+  else if (F.markets.has(k)) F.markets.delete(k);
+  else F.markets.add(k);
+  syncSortForMarkets();
+  render();
+}
+function setMarket(k, doRender = true) {   // jump straight to exactly one market (used by search)
+  F.markets = new Set([k]);
+  syncSortForMarkets();
   if (doRender) render();
 }
 function renderHead() {
@@ -506,11 +517,11 @@ function renderHead() {
 function filtered() {
   const q = F.q.toLowerCase();
   let rows = board.props.filter(p =>
-    (F.market === 'all' || p.market === F.market) &&
+    (F.markets.size === 0 || F.markets.has(p.market)) &&
     (!F.pos || p.pos === F.pos) && (!F.team || p.team === F.team) &&
     (!F.game || p.game === F.game) && (!q || p.player.toLowerCase().includes(q)) &&
     !(F.hideout && p.inj === 'Out') &&
-    !(F.tierOnly && isQ1() && !(p.tier && ['LOCK', 'STRONG', 'LEAN'].includes(p.tier.tier))));
+    !(F.tierOnly && activeQ1() && !(p.tier && ['LOCK', 'STRONG', 'LEAN'].includes(p.tier.tier))));
   rows = rows.map(p => ({ p, d: derive(p) }));
   if (F.minhit > 0) rows = rows.filter(x => x.d.pct != null && x.d.pct >= F.minhit);
   const key = F.sort === 'hit' ? F.win : F.sort;
@@ -530,8 +541,8 @@ function filtered() {
 function render() {
   if (!board) return;
   renderHead();
-  $('#tierOnlyWrap').hidden = !isQ1(); $('#clearGame').hidden = !F.game; $('#openParlay').hidden = !F.game;
-  document.querySelectorAll('#markets .pill').forEach(el => el.classList.toggle('on', el.dataset.k === F.market));
+  $('#tierOnlyWrap').hidden = !activeQ1(); $('#clearGame').hidden = !F.game; $('#openParlay').hidden = !F.game;
+  document.querySelectorAll('#markets .pill').forEach(el => el.classList.toggle('on', el.dataset.k === 'all' ? F.markets.size === 0 : F.markets.has(el.dataset.k)));
   document.querySelectorAll('#games .game').forEach(el => el.classList.toggle('on', el.dataset.id === F.game));
   const rows = filtered(), CAP = 300, shown = rows.slice(0, CAP);
   const gmap = Object.fromEntries(board.games.map(g => [g.id, g]));
@@ -545,7 +556,7 @@ function render() {
         <div class="sub">${esc(p.pos)} · ${esc(p.team)}</div></div></div></td>
       <td>${p.home ? 'vs' : '@'} ${esc(p.opp)}</td>
       <td>${esc(p.label)}</td>
-      ${isQ1() ? tierCell(p) : ''}
+      ${activeQ1() ? tierCell(p) : ''}
       <td><input class="lineinput" type="number" step="0.5" value="${d.line}" data-id="${esc(p.id)}">
         <span class="tag ${srcTagOf(p)[0]}">${srcTagOf(p)[1]}</span></td>
       <td>${fmtOdds(odds)}</td>
@@ -556,7 +567,7 @@ function render() {
   }).join('') : `<tr><td colspan="${cols().length}" class="empty">No props match these filters.</td></tr>`;
   $('#foot').textContent = `${rows.length} props` + (rows.length > CAP ? ` (showing top ${CAP} — narrow the filters to see the rest)` : '') +
     ` · *Opp rank = how many ${F.side === 'over' ? 'yards/stats' : 'stats'} the defense allows to that position over its last 17 games (1st = allows the most).` +
-    (isQ1() ? ' · Tiers (🔒 LOCK ≥ .80, 🔥 STRONG ≥ .72, ⭐ LEAN ≥ .63) score each team\'s top WR / RB; click a player for the breakdown.' : '');
+    (activeQ1() ? ' · Tiers (🔒 LOCK ≥ .80, 🔥 STRONG ≥ .72, ⭐ LEAN ≥ .63) score each team\'s top WR / RB; click a player for the breakdown.' : '');
   document.querySelectorAll('tr.row').forEach(tr => tr.onclick = e => {
     if (e.target.classList.contains('lineinput')) return;
     location.hash = '#/p/' + encodeURIComponent(tr.dataset.id);
@@ -853,7 +864,7 @@ function toast(msg, err, ms = 4500) {
 
 // ---- wiring -----------------------------------------------------------
 $('#markets').innerHTML = MARKETS.map(([k, l]) => `<button class="pill" data-k="${k}">${l}</button>`).join('');
-document.querySelectorAll('#markets .pill').forEach(el => el.onclick = () => setMarket(el.dataset.k));
+document.querySelectorAll('#markets .pill').forEach(el => el.onclick = () => toggleMarket(el.dataset.k));
 $('#q').oninput = e => { F.q = e.target.value; render(); };
 $('#pos').onchange = e => { F.pos = e.target.value; render(); };
 $('#team').onchange = e => { F.team = e.target.value; render(); };
@@ -1105,10 +1116,11 @@ function pickResult(i) {
   const it = gsItems[i]; if (!it) return;
   if (it.type === 'player') {
     const p = it.p;
-    const t = board.props.find(x => x.pid === p.pid && x.game === p.game && x.market === F.market) || p;
+    const only = F.markets.size === 1 ? [...F.markets][0] : null;
+    const t = (only && board.props.find(x => x.pid === p.pid && x.game === p.game && x.market === only)) || p;
     location.hash = '#/p/' + encodeURIComponent(t.id);
   } else {
-    if (it.type === 'team') { F.team = it.t.code; F.market = 'all'; F.game = ''; F.pos = ''; F.q = ''; }
+    if (it.type === 'team') { F.team = it.t.code; F.markets.clear(); F.game = ''; F.pos = ''; F.q = ''; }
     else { setMarket(it.k, false); F.team = ''; F.game = ''; F.pos = ''; F.q = ''; }
     $('#team').value = F.team; $('#pos').value = ''; $('#q').value = '';
     render();
