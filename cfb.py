@@ -21,7 +21,8 @@ DATA = BASE / "data" / "cfb"
 GAMES_DIR = DATA / "games"
 GAMES_DIR.mkdir(parents=True, exist_ok=True)
 
-ESPN = "https://site.api.espn.com/apis/site/v2/sports/football/college-football"
+ESPN_HOSTS = ["site.api.espn.com", "site.web.api.espn.com"]   # 2nd host: site.api.* 403s from GH Actions
+ESPN_PATH = "apis/site/v2/sports/football/college-football"
 HTTP = {"User-Agent": "Mozilla/5.0 PropBoard"}
 FBS = 80             # ESPN's "group" id for FBS (skips FCS-only games)
 HIST_WEEKS = 6        # how many of the most recent completed weeks to build history from
@@ -37,9 +38,18 @@ MARKETS = {
 
 # ------------------------------------------------------------------- ESPN ---
 def _get(path, **params):
-    r = requests.get(f"{ESPN}/{path}", params=params, headers=HTTP, timeout=25)
-    r.raise_for_status()
-    return r.json()
+    """site.api.espn.com 403s from GitHub Actions runners (same block NFL hit); site.web.api.espn.com
+    serves the identical response and isn't blocked there, so try that host second, not first —
+    locally both work, but site.api is the one ESPN's own apps use, so it's the safer default."""
+    last = None
+    for host in ESPN_HOSTS:
+        try:
+            r = requests.get(f"https://{host}/{ESPN_PATH}/{path}", params=params, headers=HTTP, timeout=25)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last = e
+    raise last
 
 
 def scoreboard(week=None, season=None):
