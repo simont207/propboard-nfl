@@ -580,12 +580,13 @@ function render() {
       <td class="rank ${rkc}">${rk ? ord(rk) : '–'} ${(() => { const gr = gradeOf(rk, F.side); return gr ? `<span class="grade ${gr.cls}">${gr.L}</span>` : ''; })()}</td>
       <td>${spark(p, d.line)}</td></tr>`;
     if (!expanded) return row;
-    const chips = altChips(p);
+    const { chips, win, miss } = bestAltChips(p);
+    const clearedText = miss ? `all but one of his last ${win}` : `each of his last ${win}`;
     const altHtml = chips.length
       ? `<div class="alts">${chips.map(c => `<button class="alt ${inSlip(p, c.t, 'over') ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(p.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div>`
-      : `<div class="muted" style="font-size:12px">No alt line cleared in his last ${GV.win} games. <a href="#/g/${esc(p.game)}" style="color:var(--green)">Open the full game page</a> for more windows.</div>`;
+      : `<div class="muted" style="font-size:12px">No alt line cleared in ${clearedText} games. <a href="#/g/${esc(p.game)}" style="color:var(--green)">Open the full game page</a> to see his raw numbers.</div>`;
     return row + `<tr class="altrow"><td colspan="${cols().length}">
-      <div class="muted" style="font-size:12px;margin-bottom:6px">Alt lines are shown as Over — pick a lower number for an easier hit. Click one to add it (swaps out ${esc(p.label)} ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} if that's in your slip).</div>
+      <div class="muted" style="font-size:12px;margin-bottom:6px">Alt lines are shown as Over — pick a lower number for an easier hit${chips.length ? `, cleared in ${clearedText} games` : ''}. Click one to add it (swaps out ${esc(p.label)} ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} if that's in your slip).</div>
       ${altHtml}</td></tr>`;
   }).join('') : `<tr><td colspan="${cols().length}" class="empty">No props match these filters.</td></tr>`;
   $('#foot').textContent = `${rows.length} props` + (rows.length > CAP ? ` (showing top ${CAP} — narrow the filters to see the rest)` : '') +
@@ -835,10 +836,12 @@ function renderPlayer(p) {
       ${gr ? `<div class="gbadge"><div class="L ${gr.cls === 'gA' ? 'g' : gr.cls === 'gD' ? 'r' : ''}">${gr.L}</div><div class="t">Matchup grade<br>for ${side === 'over' ? 'Over' : 'Under'}</div></div>` : ''}
     </div>
     ${(() => {
-      const chips = altChips(p);
-      if (!chips.length) return '';
+      const { chips, win, miss } = bestAltChips(p);
+      const clearedText = miss ? `all but one of his last ${win}` : `each of his last ${win}`;
+      if (!chips.length) return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
+        <b>Alt lines</b> <span class="muted" style="font-size:12px">— no alt line cleared in ${clearedText} games. Open the game page for more windows.</span></div>`;
       return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
-        <b>Alt lines</b> <span class="muted" style="font-size:12px">— shown as Over, from his last ${GV.win} games. Click one to add it (swaps your current pick for this prop).</span>
+        <b>Alt lines</b> <span class="muted" style="font-size:12px">— shown as Over, cleared in ${clearedText} games. Click one to add it (swaps your current pick for this prop).</span>
         <div class="alts" style="margin-top:8px">${chips.map(c => `<button class="alt ${inSlip(p, c.t, 'over') ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(p.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div></div>`;
     })()}
 
@@ -956,16 +959,28 @@ function ladder(market, vals) {
   return out;
 }
 // thresholds (value >= t) he cleared in the window; highest first
-function altChips(p) {
-  const vals = p.log.slice(-GV.win).map(x => x[3]), n = vals.length;
-  if (n < Math.min(GV.win, 3)) return [];
+function altChips(p, win = GV.win, miss = GV.miss) {
+  const vals = p.log.slice(-win).map(x => x[3]), n = vals.length;
+  if (n < Math.min(win, 3)) return [];
   const all = ladder(p.market, vals).map(t => ({ t, hits: vals.filter(v => v >= t).length, n }));   // low -> high
-  const chips = all.filter(c => c.hits >= c.n - GV.miss).sort((a, b) => b.t - a.t).slice(0, 5);
+  const chips = all.filter(c => c.hits >= c.n - miss).sort((a, b) => b.t - a.t).slice(0, 5);
   if (!chips.length) return [];
   // also show the next line up (with its record) when he cleared it in at least half of the games
   const next = all.find(c => c.t > chips[0].t);
   if (next && next.hits >= Math.ceil(n / 2)) chips.unshift({ ...next, near: true });
   return chips;
+}
+// Board + player page (no manual Games/Must-clear controls there): try progressively looser windows so a
+// single bad game doesn't dead-end into "no alt lines". The per-game page keeps using altChips() directly,
+// respecting exactly what the user picked in its own Games/Must-clear selects.
+const ALT_TIERS = [[5, 0], [5, 1], [10, 0], [10, 1]];
+function bestAltChips(p) {
+  for (const [win, miss] of ALT_TIERS) {
+    const chips = altChips(p, win, miss);
+    if (chips.length) return { chips, win, miss };
+  }
+  const [win, miss] = ALT_TIERS[ALT_TIERS.length - 1];
+  return { chips: [], win, miss };
 }
 const legText = l => {
   const side = l.side || 'over';
