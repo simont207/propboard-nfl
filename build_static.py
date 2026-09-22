@@ -44,3 +44,17 @@ with app.app.test_request_context():
 (out / ".nojekyll").write_text("")
 print(f"Built docs/: {len(board['games'])} games, {len(board['props'])} props, "
       f"{(out / 'board.json').stat().st_size // 1024} KB of data.")
+
+# NCAAF: soft-fail — one bad/slow ESPN fetch shouldn't take the whole site down. If it doesn't meet
+# the same sanity bar, leave whatever board_ncaaf.json is already published (or none) rather than error.
+try:
+    import cfb
+    cfb_board = cfb.build_board()
+    if not cfb_board["games"] or len(cfb_board["props"]) < 200:
+        print(f"NCAAF: only {len(cfb_board['games'])} games / {len(cfb_board['props'])} props — not publishing this run.")
+    else:
+        (out / "board_ncaaf.json").write_text(json.dumps(cfb_board, allow_nan=False, separators=(",", ":")))
+        print(f"Built docs/board_ncaaf.json: {len(cfb_board['games'])} games, {len(cfb_board['props'])} props, "
+              f"{(out / 'board_ncaaf.json').stat().st_size // 1024} KB of data.")
+except Exception as e:
+    print(f"NCAAF build failed, leaving the site's NFL side unaffected: {e}")

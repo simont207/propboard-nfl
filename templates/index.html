@@ -292,7 +292,8 @@ window.onerror = function (msg, src, line) {
 };
 </script>
 <header>
-  <div><a class="logo" id="logoHome" href="#/" title="Back to the home screen">Prop<b>Board</b> NFL</a><div class="muted small" id="sub">Loading…</div></div>
+  <div><a class="logo" id="logoHome" href="#/" title="Back to the home screen">Prop<b>Board</b> <span id="sportName">NFL</span></a><div class="muted small" id="sub">Loading…</div></div>
+  <div class="seg" id="sportSwitch"><button data-s="nfl" class="on">NFL</button><button data-s="ncaaf">NCAAF</button></div>
   <div class="search">
     <input type="text" id="gsearch" placeholder="Search players, teams, props   ( / )" autocomplete="off" disabled>
     <div class="results" id="gresults" hidden></div>
@@ -382,15 +383,28 @@ const PUBLIC = {{ 'true' if public else 'false' }};
 if (PUBLIC) document.body.classList.add('public');
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const MARKETS = [['all','All props'],['rec_yds','Rec Yds'],['rec','Receptions'],['rush_yds','Rush Yds'],
-  ['rush_rec_yds','Rush+Rec Yds'],['pass_yds','Pass Yds'],['pass_tds','Pass TDs'],['any_td','Anytime TD'],['q1_rec','Q1 Rec 5+'],['q1_rush','Q1 Rush 5+']];
+// PropBoard covers two sports off one shared UI. Everything below reads board.props/board.games
+// generically (no NFL-specific field names), so the same table/player-page/game-page/parlay code
+// works for both — only the market list, header title and cache keys are sport-specific.
+let SPORT = 'nfl';
+const SPORT_TITLE = { nfl: 'NFL', ncaaf: 'NCAAF' };
+const SPORT_DEFAULT_MARKET = { nfl: 'rec_yds', ncaaf: 'pass_yds' };
+const BOARD_URLS = { nfl: PUBLIC ? 'board.json' : '/api/board', ncaaf: PUBLIC ? 'board_ncaaf.json' : '/api/board-ncaaf' };
+const SPORT_MARKETS = {
+  nfl: [['all','All props'],['rec_yds','Rec Yds'],['rec','Receptions'],['rush_yds','Rush Yds'],
+    ['rush_rec_yds','Rush+Rec Yds'],['pass_yds','Pass Yds'],['pass_tds','Pass TDs'],['any_td','Anytime TD'],['q1_rec','Q1 Rec 5+'],['q1_rush','Q1 Rush 5+']],
+  ncaaf: [['all','All props'],['pass_yds','Pass Yds'],['pass_tds','Pass TDs'],['rush_yds','Rush Yds'],['rec_yds','Rec Yds'],['rec','Receptions']],
+};
+let MARKETS = SPORT_MARKETS[SPORT];
+const BOARDS = {};                // cache: sport -> its loaded board data, so switching back is instant
+const lsKey = name => `${name}_${SPORT}`;   // per-sport localStorage keys (separate slips/custom lines)
 
 let board = null;
 const F = { markets: new Set(['rec_yds']), pos: '', team: '', game: '', q: '', side: 'over', win: 'l10',
             minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1 };
 let overrides = {};
 const EXPANDED = new Set();   // prop ids whose alt-line row is open on the board
-try { overrides = JSON.parse(localStorage.getItem('pb_lines') || '{}'); } catch (e) {}
+try { overrides = JSON.parse(localStorage.getItem(lsKey('pb_lines')) || '{}'); } catch (e) {}
 
 // ---- data -------------------------------------------------------------
 async function load(url, opts) {
@@ -403,8 +417,30 @@ async function init() {
   try { setBoard(await load(PUBLIC ? 'board.json' : '/api/board')); }
   catch (e) { $('#sub').textContent = 'Could not load data: ' + e.message; }
 }
+function switchSport(sport) {
+  if (sport === SPORT) return;
+  SPORT = sport; MARKETS = SPORT_MARKETS[sport];
+  $('#sportName').textContent = SPORT_TITLE[sport];
+  document.querySelectorAll('#sportSwitch button').forEach(b => b.classList.toggle('on', b.dataset.s === sport));
+  Object.assign(F, { markets: new Set([SPORT_DEFAULT_MARKET[sport]]), pos: '', team: '', game: '', q: '',
+                      side: 'over', win: 'l10', minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1 });
+  overrides = {}; try { overrides = JSON.parse(localStorage.getItem(lsKey('pb_lines')) || '{}'); } catch (e) {}
+  EXPANDED.clear(); SLIP.length = 0; SLIP_OPEN = false;
+  try { SLIP.push(...JSON.parse(localStorage.getItem(lsKey('pb_slip')) || '[]')); } catch (e) {}
+  STAKE = +localStorage.getItem(lsKey('pb_stake')) || 10;
+  $('#q').value = ''; $('#pos').value = ''; $('#team').value = ''; $('#minhit').value = 0; $('#hideout').checked = true;
+  document.querySelectorAll('#side button').forEach(b => b.classList.toggle('on', b.dataset.v === 'over'));
+  gsItems = []; $('#gresults').hidden = true;
+  location.hash = '#/';
+  if (BOARDS[sport]) setBoard(BOARDS[sport]);
+  else {
+    board = null; $('#sub').textContent = 'Loading…'; $('#games').innerHTML = ''; $('#tbody').innerHTML = '';
+    load(BOARD_URLS[sport]).then(setBoard).catch(e => { $('#sub').textContent = 'Could not load data: ' + e.message; });
+  }
+}
 function setBoard(b) {
   board = b;
+  BOARDS[SPORT] = b;
   const teams = [...new Set(b.props.map(p => p.team))].sort();
   $('#team').innerHTML = '<option value="">All teams</option>' + teams.map(t => `<option>${t}</option>`).join('');
   $('#team').value = F.team;
@@ -559,7 +595,8 @@ function render() {
   $('#tbody').innerHTML = shown.length ? shown.map(({ p, d }) => {
     const odds = F.side === 'over' ? p.over : p.under;
     const rk = p.opp_rank;
-    const rkc = rk == null ? 'n' : (F.side === 'over' ? (rk <= 8 ? 'g' : rk >= 25 ? 'r' : 'm') : (rk >= 25 ? 'g' : rk <= 8 ? 'r' : 'm'));
+    const rn = poolN(p.pos, p.market), rq = Math.ceil(rn * 0.25);
+    const rkc = rk == null ? 'n' : (F.side === 'over' ? (rk <= rq ? 'g' : rk > rn - rq ? 'r' : 'm') : (rk > rn - rq ? 'g' : rk <= rq ? 'r' : 'm'));
     const onCur = inSlip(p, d.line, F.side);
     const expanded = EXPANDED.has(p.id);
     const row = `<tr class="row" data-id="${esc(p.id)}">
@@ -577,7 +614,7 @@ function render() {
       <td>${fmtOdds(odds)}</td>
       ${hitCell(d.r.l5)}${hitCell(d.r.l10)}${hitCell(d.r.season)}${hitCell(d.r.h2h)}
       <td class="rank">${fmtNum(d.avg)}</td>
-      <td class="rank ${rkc}">${rk ? ord(rk) : '–'} ${(() => { const gr = gradeOf(rk, F.side); return gr ? `<span class="grade ${gr.cls}">${gr.L}</span>` : ''; })()}</td>
+      <td class="rank ${rkc}">${rk ? ord(rk) : '–'} ${(() => { const gr = gradeOf(rk, F.side, rn); return gr ? `<span class="grade ${gr.cls}">${gr.L}</span>` : ''; })()}</td>
       <td>${spark(p, d.line)}</td></tr>`;
     if (!expanded) return row;
     const { chips, win, miss } = bestAltChips(p);
@@ -590,7 +627,7 @@ function render() {
       ${altHtml}</td></tr>`;
   }).join('') : `<tr><td colspan="${cols().length}" class="empty">No props match these filters.</td></tr>`;
   $('#foot').textContent = `${rows.length} props` + (rows.length > CAP ? ` (showing top ${CAP} — narrow the filters to see the rest)` : '') +
-    ` · *Opp rank = how many ${F.side === 'over' ? 'yards/stats' : 'stats'} the defense allows to that position over its last 17 games (1st = allows the most).` +
+    ` · *Opp rank = how many ${F.side === 'over' ? 'yards/stats' : 'stats'} the defense allows to that position${SPORT === 'ncaaf' ? ' this season' : ' over its last 17 games'} (1st = allows the most).` +
     (activeQ1() ? ' · Tiers (💎 ELITE ≥ .80, 🔥 STRONG ≥ .72, ⭐ LEAN ≥ .63) score each team\'s top WR / RB; click a player for the breakdown.' : '');
   document.querySelectorAll('tr.row').forEach(tr => tr.onclick = e => {
     if (e.target.classList.contains('lineinput')) return;
@@ -612,7 +649,7 @@ function render() {
       const v = parseFloat(inp.value);
       const p = board.props.find(x => x.id === inp.dataset.id);
       if (isNaN(v) || v === p.line) delete overrides[p.id]; else overrides[p.id] = v;
-      try { localStorage.setItem('pb_lines', JSON.stringify(overrides)); } catch (e) {}
+      try { localStorage.setItem(lsKey('pb_lines'), JSON.stringify(overrides)); } catch (e) {}
       render();
     };
   });
@@ -645,10 +682,11 @@ function renderTop() {
 const PV = { win: 'l10', f: {}, key: null };
 const GRADES = ['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','F'];
 const gcls = L => 'g' + (L[0] === 'F' ? 'D' : L[0]);
-function gradeOf(rank, side) {
+function poolN(pos, market) { return board?.dvp?.[`${pos}|${market}`]?.n || 32; }
+function gradeOf(rank, side, n = 32) {
   if (!rank) return null;
-  const r = side === 'over' ? rank : 33 - rank;            // 1st = allows the most = best for Overs
-  const L = GRADES[Math.min(11, Math.floor((r - 1) / 32 * 12))];
+  const r = side === 'over' ? rank : n + 1 - rank;          // 1st = allows the most = best for Overs
+  const L = GRADES[Math.min(11, Math.floor((r - 1) / n * 12))];
   return { L, cls: gcls(L) };
 }
 const rankOf = (p, team) => board.dvp[`${p.pos}|${p.market}`]?.teams[team]?.[0];
@@ -664,7 +702,7 @@ function setSide(v) {
 function setLine(p, raw) {
   const v = parseFloat(raw);
   if (isNaN(v) || v === p.line) delete overrides[p.id]; else overrides[p.id] = v;
-  try { localStorage.setItem('pb_lines', JSON.stringify(overrides)); } catch (e) {}
+  try { localStorage.setItem(lsKey('pb_lines'), JSON.stringify(overrides)); } catch (e) {}
   render(); route();
 }
 
@@ -749,7 +787,7 @@ function renderPlayer(p) {
   const line = lineFor(p), side = F.side, f = PV.f;
   const gm = g && g.home_spread != null ? (p.home ? -g.home_spread : g.home_spread) : null;   // >0 = favored
   const total = g?.total ?? null;
-  const rk = p.opp_rank, gr = gradeOf(rk, side);
+  const rk = p.opp_rank, rn = poolN(p.pos, p.market), gr = gradeOf(rk, side, rn);
 
   // chart filters
   const games = p.log.filter(x => {
@@ -860,9 +898,9 @@ function renderPlayer(p) {
       <div class="card"><h3>Matchup Insights</h3><div class="body">
         <div class="vs"><div class="side"><div style="display:flex;justify-content:center;margin-bottom:4px">${pimg(p.player, p.img, 52)}</div>${esc(p.team)}</div><span class="muted">VS</span>
           <div class="side logo"><div style="display:flex;justify-content:center;margin-bottom:4px">${timg(p.opp, oppLogo, 52, true)}</div>${esc(p.opp)} D</div></div>
-        ${t ? `<div class="meter" style="background:linear-gradient(90deg,${side === 'over' ? '#4ade80,#fbbf24,#f87171' : '#f87171,#fbbf24,#4ade80'})"><i style="left:${(t[0] - 1) / 31 * 100}%">${ord(t[0])}</i><b style="left:${(t[0] - 1) / 31 * 100}%"></b></div>
-          <div class="meterlab"><span>1st · allows most</span><span>32nd · allows least</span></div><div style="height:12px"></div>
-          ${mline(`Defense rank vs ${posName}`, `${ord(t[0])} of 32`, rkc)}
+        ${t ? `<div class="meter" style="background:linear-gradient(90deg,${side === 'over' ? '#4ade80,#fbbf24,#f87171' : '#f87171,#fbbf24,#4ade80'})"><i style="left:${(t[0] - 1) / (rn - 1) * 100}%">${ord(t[0])}</i><b style="left:${(t[0] - 1) / (rn - 1) * 100}%"></b></div>
+          <div class="meterlab"><span>1st · allows most</span><span>${ord(rn)} · allows least</span></div><div style="height:12px"></div>
+          ${mline(`Defense rank vs ${posName}`, `${ord(t[0])} of ${rn}`, rkc)}
           ${mline(`${esc(p.opp)} allows / game to ${posName}`, fmtNum(t[1]))}
           ${mline('League average', fmtNum(dv.league))}
           ${mline('vs league', (pctDiff >= 0 ? '+' : '') + pctDiff.toFixed(0) + '%', pctDiff >= 0 ? (side === 'over' ? 'g' : 'r') : (side === 'over' ? 'r' : 'g'))}` : '<div class="muted">No defense data.</div>'}
@@ -872,7 +910,7 @@ function renderPlayer(p) {
         ${recent.length ? `<h4 style="margin:16px 0 4px">${esc(p.opp)}'s last ${recent.length} games vs ${posName}</h4><table class="recent">
           <tr class="muted"><th>Game</th><th>All ${posName}</th><th>Top performer</th></tr>
           ${recent.slice().reverse().map(r => `<tr><td>Wk ${r[1]} vs ${esc(r[2])}</td><td>${fmtNum(r[3])}</td><td>${esc(r[4])} · ${fmtNum(r[5])}</td></tr>`).join('')}</table>` : ''}
-        <div class="note">Rank = average allowed per game to ${posName} over the defense's last 17 games (this + last season).</div>
+        <div class="note">Rank = average allowed per game to ${posName}${SPORT === 'ncaaf' ? ' this season.' : " over the defense's last 17 games (this + last season)."}</div>
       </div></div>
 
       <div class="card"><h3>Odds</h3><div class="body">
@@ -1042,8 +1080,8 @@ function renderGame(g) {
 }
 
 let SLIP = [], SLIP_OPEN = false, STAKE = 10;
-try { SLIP = JSON.parse(localStorage.getItem('pb_slip') || '[]'); STAKE = +localStorage.getItem('pb_stake') || 10; } catch (e) {}
-const saveSlip = () => { try { localStorage.setItem('pb_slip', JSON.stringify(SLIP)); localStorage.setItem('pb_stake', STAKE); } catch (e) {} };
+try { SLIP = JSON.parse(localStorage.getItem(lsKey('pb_slip')) || '[]'); STAKE = +localStorage.getItem(lsKey('pb_stake')) || 10; } catch (e) {}
+const saveSlip = () => { try { localStorage.setItem(lsKey('pb_slip'), JSON.stringify(SLIP)); localStorage.setItem(lsKey('pb_stake'), STAKE); } catch (e) {} };
 function inSlip(p, t, side = 'over') {
   return SLIP.some(l => l.pid === p.pid && l.market === p.market && l.game === p.game && l.thr === t && (l.side || 'over') === side);
 }
@@ -1240,6 +1278,7 @@ function goHome() {
   render(); window.scrollTo(0, 0);
 }
 $('#logoHome').onclick = e => { e.preventDefault(); goHome(); };
+document.querySelectorAll('#sportSwitch button').forEach(b => b.onclick = () => switchSport(b.dataset.s));
 
 window.addEventListener('hashchange', route);
 init();

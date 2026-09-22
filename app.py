@@ -314,7 +314,7 @@ def defense_ranks(df):
             avg = last.groupby("opponent_team").total.mean()
             rk = avg.rank(ascending=False, method="min").astype(int)
             dvp[f"{pos}|{mkey}"] = {
-                "league": round(float(avg.mean()), 2),
+                "league": round(float(avg.mean()), 2), "n": 32,
                 "teams": {t: [int(rk[t]), round(float(avg[t]), 2)] for t in avg.index},
             }
             for team, r in rk.items():
@@ -557,6 +557,21 @@ def get_board(force=False):
         return _board_cache["data"]
 
 
+_cfb_lock = threading.Lock()
+_cfb_cache = {"t": 0, "data": None}
+
+
+def get_cfb_board(force=False):
+    """NCAAF fetches ~250 individual game box scores (see cfb.py), so this is cached longer
+    than the NFL board — cheap free data, but no reason to redo the work every 5 minutes."""
+    import cfb
+    with _cfb_lock:
+        if force or not _cfb_cache["data"] or time.time() - _cfb_cache["t"] > 1800:
+            _cfb_cache["data"] = cfb.build_board()
+            _cfb_cache["t"] = time.time()
+        return _cfb_cache["data"]
+
+
 # ------------------------------------------------------------------ routes ---
 @app.route("/")
 def index():
@@ -566,6 +581,11 @@ def index():
 @app.route("/api/board")
 def api_board():
     return jsonify(get_board())
+
+
+@app.route("/api/board-ncaaf")
+def api_board_ncaaf():
+    return jsonify(get_cfb_board())
 
 
 @app.route("/api/refresh", methods=["POST"])

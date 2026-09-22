@@ -34,6 +34,14 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      # NCAAF box scores are fetched one game at a time (~260 of them) and cached to disk — a completed
+      # game's score never changes, so restoring this between runs turns most rebuilds into just fetching
+      # the handful of NEW completed games since last time, instead of all of them from scratch.
+      - uses: actions/cache@v4
+        with:
+          path: data/cfb/games
+          key: cfb-boxscores-${{ github.run_id }}
+          restore-keys: cfb-boxscores-
       - run: python build_static.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

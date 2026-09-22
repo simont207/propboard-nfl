@@ -5,7 +5,15 @@ A props.cash-style NFL player prop finder that runs on your Mac.
 **Start it:** double-click `start.command`. Your browser opens to http://127.0.0.1:5051.
 Leave the black Terminal window open while you use it; close it to stop the site.
 
-## What it does
+## NFL + NCAAF
+A **NFL / NCAAF** switch in the header swaps the whole site to the other sport — same table,
+player pages, game pages, search and parlay slip, each sport with its own separate slip and
+custom lines. NCAAF covers FBS only, sourced from ESPN's scoreboard (schedule/lines) and its
+per-game box scores (player stats — see `cfb.py`'s docstring for why, not nflverse's play-level
+export, which turned out too unreliable to hand-aggregate). No Q1 markets, sharpness tiers or
+sportsbook odds for NCAAF yet — just the core props.
+
+## What it does (NFL)
 - Every upcoming game (this week + next) with spread and total, from ESPN.
 - Player props: Rec Yds, Receptions, Rush Yds, Rush+Rec Yds, Pass Yds, Pass TDs, Anytime TD.
 - **Q1 Rec 5+ / Q1 Rush 5+**: did the player get 5+ yards in the first quarter? (fixed line 4.5, from
