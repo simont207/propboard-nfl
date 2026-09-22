@@ -217,6 +217,15 @@
   .alt.full { border-color: #1f6b3d; } .alt.full small { color: var(--green); }
   .alt.near { border-style: dashed; border-color: #7a5d12; } .alt.near small { color: var(--amber); }
   .alt.on { background: var(--green); color: #06210f; border-color: var(--green); } .alt.on small { color: #06210f; }
+  .altrow td { background: var(--panel2); padding: 12px 14px; white-space: normal; }
+  .qbtn { display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); background: var(--bg);
+    border-radius: 6px; cursor: pointer; margin-left: 4px; color: var(--text); vertical-align: middle; }
+  .addbtn { width: 22px; height: 22px; font-size: 13px; font-weight: 800; padding: 0; }
+  .addbtn.on { background: var(--green); color: #06210f; border-color: var(--green); }
+  .addbtn:hover { border-color: var(--green-dim); }
+  .altbtn { padding: 3px 8px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .altbtn.on { border-color: var(--green); color: var(--green); }
+  .altbtn:hover { border-color: var(--green-dim); }
 
   /* parlay slip */
   #slip { position: fixed; top: 0; right: 0; bottom: 0; width: 350px; max-width: 100%; background: var(--panel);
@@ -380,6 +389,7 @@ let board = null;
 const F = { markets: new Set(['rec_yds']), pos: '', team: '', game: '', q: '', side: 'over', win: 'l10',
             minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1 };
 let overrides = {};
+const EXPANDED = new Set();   // prop ids whose alt-line row is open on the board
 try { overrides = JSON.parse(localStorage.getItem('pb_lines') || '{}'); } catch (e) {}
 
 // ---- data -------------------------------------------------------------
@@ -550,7 +560,9 @@ function render() {
     const odds = F.side === 'over' ? p.over : p.under;
     const rk = p.opp_rank;
     const rkc = rk == null ? 'n' : (F.side === 'over' ? (rk <= 8 ? 'g' : rk >= 25 ? 'r' : 'm') : (rk >= 25 ? 'g' : rk <= 8 ? 'r' : 'm'));
-    return `<tr class="row" data-id="${esc(p.id)}">
+    const onCur = inSlip(p, d.line, F.side);
+    const expanded = EXPANDED.has(p.id);
+    const row = `<tr class="row" data-id="${esc(p.id)}">
       <td><div class="player">${pimg(p.player, p.img, 38)}
         <div><div class="nm">${esc(p.player)}${p.inj ? `<span class="tag ${esc(p.inj)}">${esc(p.inj.slice(0, 1) === 'Q' ? 'Q' : p.inj)}</span>` : ''}</div>
         <div class="sub">${esc(p.pos)} · ${esc(p.team)}</div></div></div></td>
@@ -558,12 +570,23 @@ function render() {
       <td>${esc(p.label)}</td>
       ${activeQ1() ? tierCell(p) : ''}
       <td><input class="lineinput" type="number" step="0.5" value="${d.line}" data-id="${esc(p.id)}">
-        <span class="tag ${srcTagOf(p)[0]}">${srcTagOf(p)[1]}</span></td>
+        <span class="tag ${srcTagOf(p)[0]}">${srcTagOf(p)[1]}</span>
+        <button class="qbtn addbtn ${onCur ? 'on' : ''}" data-id="${esc(p.id)}" data-t="${d.line}" data-side="${F.side}"
+          title="${onCur ? 'Remove from parlay slip' : `Add ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} to your parlay`}">${onCur ? '✓' : '+'}</button>
+        <button class="qbtn altbtn ${expanded ? 'on' : ''}" data-id="${esc(p.id)}" title="Show alt lines for this prop">Alt${expanded ? ' ▴' : ' ▾'}</button></td>
       <td>${fmtOdds(odds)}</td>
       ${hitCell(d.r.l5)}${hitCell(d.r.l10)}${hitCell(d.r.season)}${hitCell(d.r.h2h)}
       <td class="rank">${fmtNum(d.avg)}</td>
       <td class="rank ${rkc}">${rk ? ord(rk) : '–'} ${(() => { const gr = gradeOf(rk, F.side); return gr ? `<span class="grade ${gr.cls}">${gr.L}</span>` : ''; })()}</td>
       <td>${spark(p, d.line)}</td></tr>`;
+    if (!expanded) return row;
+    const chips = altChips(p);
+    const altHtml = chips.length
+      ? `<div class="alts">${chips.map(c => `<button class="alt ${inSlip(p, c.t, 'over') ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(p.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div>`
+      : `<div class="muted" style="font-size:12px">No alt line cleared in his last ${GV.win} games. <a href="#/g/${esc(p.game)}" style="color:var(--green)">Open the full game page</a> for more windows.</div>`;
+    return row + `<tr class="altrow"><td colspan="${cols().length}">
+      <div class="muted" style="font-size:12px;margin-bottom:6px">Alt lines are shown as Over — pick a lower number for an easier hit. Click one to add it (swaps out ${esc(p.label)} ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} if that's in your slip).</div>
+      ${altHtml}</td></tr>`;
   }).join('') : `<tr><td colspan="${cols().length}" class="empty">No props match these filters.</td></tr>`;
   $('#foot').textContent = `${rows.length} props` + (rows.length > CAP ? ` (showing top ${CAP} — narrow the filters to see the rest)` : '') +
     ` · *Opp rank = how many ${F.side === 'over' ? 'yards/stats' : 'stats'} the defense allows to that position over its last 17 games (1st = allows the most).` +
@@ -571,6 +594,15 @@ function render() {
   document.querySelectorAll('tr.row').forEach(tr => tr.onclick = e => {
     if (e.target.classList.contains('lineinput')) return;
     location.hash = '#/p/' + encodeURIComponent(tr.dataset.id);
+  });
+  document.querySelectorAll('#tbody .addbtn').forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, el.dataset.side);
+  });
+  document.querySelectorAll('#tbody .altbtn').forEach(el => el.onclick = e => { e.stopPropagation(); toggleAltRow(el.dataset.id); });
+  document.querySelectorAll('#tbody .altrow .alt').forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, 'over');
   });
   document.querySelectorAll('.lineinput').forEach(inp => {
     inp.onclick = e => e.stopPropagation();
@@ -791,7 +823,9 @@ function renderPlayer(p) {
         <div class="muted">${esc(p.team)} · ${esc(p.pos)}${p.inj ? `<span class="tag ${esc(p.inj)}">${esc(p.inj)}</span>` : ''}</div></div>
       <div class="stats">
         <div class="stat"><div class="k">${avgLbl}</div><div class="v ${avg == null ? 'n' : fav(avg > line)}">${avg == null ? '–' : (avg > line ? '▲ ' : '▼ ') + fmtNum(Math.round(avg * 10) / 10)}</div></div>
-        <div class="stat"><div class="k">Line</div><div class="v"><input class="lineinput" id="pvLine" type="number" step="0.5" value="${line}"> <span class="tag ${srcTag[0]}">${srcTag[1]}</span></div></div>
+        <div class="stat"><div class="k">Line</div><div class="v"><input class="lineinput" id="pvLine" type="number" step="0.5" value="${line}"> <span class="tag ${srcTag[0]}">${srcTag[1]}</span>
+          <button class="qbtn addbtn ${inSlip(p, line, side) ? 'on' : ''}" id="pvAdd" data-id="${esc(p.id)}" data-t="${line}" data-side="${side}"
+            title="${inSlip(p, line, side) ? 'Remove from parlay slip' : `Add ${side === 'over' ? 'Over' : 'Under'} ${line} to your parlay`}">${inSlip(p, line, side) ? '✓' : '+'}</button></div></div>
         <div class="stat"><div class="k">Prop</div><div class="v">${esc(p.label)}</div></div>
         <div class="stat"><div class="k">Hit rate · ${esc(cur[1])}</div><div class="v ${pcls(R[cur[0]])}">${R[cur[0]].n ? Math.round(R[cur[0]].pct) + '% ' : '–'}<small>${R[cur[0]].n ? R[cur[0]].hits + '/' + R[cur[0]].n : ''}</small></div></div>
         <div class="stat"><div class="k">Matchup rank</div><div class="v ${rkc}">${rk ? ord(rk) : '–'} <small>vs ${esc(p.pos)}</small></div></div>
@@ -800,6 +834,13 @@ function renderPlayer(p) {
       ${ti && ti.tier && ti.tier !== 'OUT' ? `<div class="gbadge"><div class="L">${TIER_ICON[ti.tier]}</div><div class="t">${ti.tier} · ${ti.score.toFixed(2)}<br>Sharpness tier</div></div>` : ''}
       ${gr ? `<div class="gbadge"><div class="L ${gr.cls === 'gA' ? 'g' : gr.cls === 'gD' ? 'r' : ''}">${gr.L}</div><div class="t">Matchup grade<br>for ${side === 'over' ? 'Over' : 'Under'}</div></div>` : ''}
     </div>
+    ${(() => {
+      const chips = altChips(p);
+      if (!chips.length) return '';
+      return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
+        <b>Alt lines</b> <span class="muted" style="font-size:12px">— shown as Over, from his last ${GV.win} games. Click one to add it (swaps your current pick for this prop).</span>
+        <div class="alts" style="margin-top:8px">${chips.map(c => `<button class="alt ${inSlip(p, c.t, 'over') ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(p.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div></div>`;
+    })()}
 
     <div class="chartcard">
       <div class="chartbar"><b>${p.src === 'fixed' && line === 4.5 ? esc(p.label) + (side === 'over' ? '' : ' · misses (4 or fewer)') : esc(p.label) + ' · ' + lineText(p, line, side)}</b>
@@ -851,6 +892,10 @@ function renderPlayer(p) {
   if ($('#chipClear')) $('#chipClear').onclick = () => { PV.f = {}; route(); };
   document.querySelectorAll('#pvSide2 button').forEach(b => b.onclick = () => setSide(b.dataset.v));
   if ($('#pvLines')) $('#pvLines').onclick = openModal;
+  if ($('#pvAdd')) $('#pvAdd').onclick = () => toggleLeg(p, line, side);
+  document.querySelectorAll('#pvMain .alt').forEach(el => el.onclick = () => {
+    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, 'over');
+  });
   const li = $('#pvLine');
   li.onkeydown = e => { if (e.key === 'Enter') li.blur(); };
   li.onchange = () => setLine(p, li.value);
@@ -922,10 +967,14 @@ function altChips(p) {
   if (next && next.hits >= Math.ceil(n / 2)) chips.unshift({ ...next, near: true });
   return chips;
 }
-const legText = l => l.market === 'any_td' ? (l.thr === 1 ? 'Anytime TD' : `${l.thr}+ TDs`)
-  : l.market === 'pass_tds' ? `${l.thr}+ Pass TDs`
-  : l.market === 'q1_rec' ? `Q1 ${l.thr}+ rec yds` : l.market === 'q1_rush' ? `Q1 ${l.thr}+ rush yds`
-  : `${l.mlabel} ${l.thr}+`;
+const legText = l => {
+  const side = l.side || 'over';
+  if (l.market === 'any_td') return side === 'over' ? (l.thr === 1 ? 'Anytime TD' : `${l.thr}+ TDs`) : `Under ${l.thr} TDs`;
+  if (l.market === 'pass_tds') return side === 'over' ? `${l.thr}+ Pass TDs` : `Under ${l.thr} Pass TDs`;
+  if (l.market === 'q1_rec') return `Q1 rec yds ${side === 'over' ? l.thr + '+' : 'Under ' + l.thr}`;
+  if (l.market === 'q1_rush') return `Q1 rush yds ${side === 'over' ? l.thr + '+' : 'Under ' + l.thr}`;
+  return `${l.mlabel} ${side === 'over' ? l.thr + '+' : 'Under ' + l.thr}`;
+};
 
 function renderGame(g) {
   const home = teamCode(g.home), away = teamCode(g.away);
@@ -940,7 +989,6 @@ function renderGame(g) {
   });
   const players = [...byPlayer.values()].sort((a, b) =>
     (b.p.team === away) - (a.p.team === away) || POS_ORDER[a.p.pos] - POS_ORDER[b.p.pos] || b.vol - a.vol);
-  const inSlip = (p, t) => SLIP.some(l => l.pid === p.pid && l.market === p.market && l.game === p.game && l.thr === t);
   const winTxt = GV.win === 5 ? 'last 5' : GV.win === 10 ? 'last 10' : 'last 3';
   $('#gameView').innerHTML = `
     <a class="back" href="#/">← Back to board</a>
@@ -981,25 +1029,47 @@ function renderGame(g) {
 let SLIP = [], SLIP_OPEN = false, STAKE = 10;
 try { SLIP = JSON.parse(localStorage.getItem('pb_slip') || '[]'); STAKE = +localStorage.getItem('pb_stake') || 10; } catch (e) {}
 const saveSlip = () => { try { localStorage.setItem('pb_slip', JSON.stringify(SLIP)); localStorage.setItem('pb_stake', STAKE); } catch (e) {} };
-function toggleLeg(p, thr) {
+function inSlip(p, t, side = 'over') {
+  return SLIP.some(l => l.pid === p.pid && l.market === p.market && l.game === p.game && l.thr === t && (l.side || 'over') === side);
+}
+function toggleAltRow(id) {          // board: open/close the inline alt-line row under a prop, keeping scroll steady
+  const y = window.scrollY;
+  EXPANDED.has(id) ? EXPANDED.delete(id) : EXPANDED.add(id);
+  render();
+  window.scrollTo(0, y);
+}
+function toggleLeg(p, thr, side = 'over') {
   const i = SLIP.findIndex(l => l.pid === p.pid && l.market === p.market && l.game === p.game);
-  if (i >= 0 && SLIP[i].thr === thr) SLIP.splice(i, 1);
+  if (i >= 0 && SLIP[i].thr === thr && (SLIP[i].side || 'over') === side) SLIP.splice(i, 1);
   else {
-    const leg = { pid: p.pid, market: p.market, game: p.game, thr, name: p.player, mlabel: p.label, team: p.team,
+    const leg = { pid: p.pid, market: p.market, game: p.game, thr, side, name: p.player, mlabel: p.label, team: p.team,
                   opp: p.opp, home: p.home, odds: i >= 0 ? SLIP[i].odds : '' };
     if (i >= 0) SLIP[i] = leg; else SLIP.push(leg);
     if (window.innerWidth >= 1150) SLIP_OPEN = true;     // on phones the slip covers the page: use the bar at the bottom
   }
-  const added = SLIP.some(l => l.pid === p.pid && l.market === p.market && l.game === p.game && l.thr === thr);
-  saveSlip(); renderSlip(); refreshChips();
-  if (window.innerWidth < 1150) toast(`${added ? 'Added' : 'Removed'}: ${p.player} ${legText({ market: p.market, mlabel: p.label, thr })} · ${SLIP.length} leg${SLIP.length === 1 ? '' : 's'}`, false, 1800);
+  const added = inSlip(p, thr, side);
+  saveSlip(); renderSlip(); refreshChips(); refreshBoardAddButtons();
+  if (window.innerWidth < 1150) toast(`${added ? 'Added' : 'Removed'}: ${p.player} ${legText({ market: p.market, mlabel: p.label, thr, side })} · ${SLIP.length} leg${SLIP.length === 1 ? '' : 's'}`, false, 1800);
 }
 // re-style the alt-line buttons in place (selected / next-line-up / cleared-every-game) without rebuilding the page
 function refreshChips() {
-  document.querySelectorAll('#gameView .alt').forEach(el => {
+  document.querySelectorAll('#gameView .alt, #tbody .altrow .alt, #pvMain .alt').forEach(el => {
     const p = board.props.find(x => x.id === el.dataset.id), t = +el.dataset.t;
-    const on = SLIP.some(l => l.pid === p.pid && l.market === p.market && l.game === p.game && l.thr === t);
+    if (!p) return;
+    const on = inSlip(p, t, 'over');
     el.className = 'alt ' + (on ? 'on' : el.dataset.base);
+  });
+}
+// re-style the board's + and player-page's + button in place, same reason as refreshChips
+function refreshBoardAddButtons() {
+  document.querySelectorAll('#tbody .addbtn, #pvMain .addbtn').forEach(el => {
+    const p = board.props.find(x => x.id === el.dataset.id);
+    if (!p) return;
+    const t = +el.dataset.t, side = el.dataset.side;
+    const on = inSlip(p, t, side);
+    el.classList.toggle('on', on);
+    el.textContent = on ? '✓' : '+';
+    el.title = on ? 'Remove from parlay slip' : `Add ${side === 'over' ? 'Over' : 'Under'} ${t} to your parlay`;
   });
 }
 const toDec = o => { o = parseFloat(o); return isNaN(o) || Math.abs(o) < 100 ? null : o > 0 ? 1 + o / 100 : 1 + 100 / Math.abs(o); };
@@ -1007,7 +1077,10 @@ const toAm = d => d >= 2 ? '+' + Math.round((d - 1) * 100) : String(Math.round(-
 function legStats(l) {
   const p = board && board.props.find(x => x.pid === l.pid && x.market === l.market && x.game === l.game);
   if (!p) return null;
-  const v = p.log.map(x => x[3]), rt = k => { const a = v.slice(-k); return { hits: a.filter(x => x >= l.thr).length, n: a.length }; };
+  const side = l.side || 'over';
+  const v = p.log.map(x => x[3]);
+  // Over legs use >= ("40+" means 40 or more, matching the alt-line ladder). Under legs use < (matching the board's own Under filter).
+  const rt = k => { const a = v.slice(-k); return { hits: a.filter(x => side === 'under' ? x < l.thr : x >= l.thr).length, n: a.length }; };
   return { l5: rt(5), l10: rt(10) };
 }
 function emptySlipHtml() {
