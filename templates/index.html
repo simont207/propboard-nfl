@@ -192,7 +192,7 @@
 
   /* tiers */
   .tier { display: inline-block; font-size: 11px; font-weight: 800; border-radius: 6px; padding: 3px 8px; white-space: nowrap; }
-  .tier.tLOCK { background: #3b2f0b; color: #ffd45c; } .tier.tSTRONG { background: #3d200f; color: #ff9a4d; }
+  .tier.tELITE { background: #3b2f0b; color: #ffd45c; } .tier.tSTRONG { background: #3d200f; color: #ff9a4d; }
   .tier.tLEAN { background: #14283d; color: #7cc0ff; } .tier.tOUT { background: #4a1d1d; color: var(--red); }
   .tier.tNone { background: var(--panel2); color: var(--muted); font-weight: 600; }
   .tierhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -481,7 +481,7 @@ const BASE_COLS = [
 ];
 const activeQ1 = () => [...F.markets].some(k => k.startsWith('q1_'));
 const cols = () => { const c = BASE_COLS.slice(); if (activeQ1()) c.splice(3, 0, ['tier', 'Tier']); return c; };
-const TIER_ICON = { LOCK: '🔒', STRONG: '🔥', LEAN: '⭐', OUT: '⛔' };
+const TIER_ICON = { ELITE: '💎', STRONG: '🔥', LEAN: '⭐', OUT: '⛔' };
 const tierBadge = t => t ? `<span class="tier t${t}">${TIER_ICON[t]} ${t}</span>` : '<span class="tier tNone">below LEAN</span>';
 const tierCell = p => p.tier
   ? `<td>${tierBadge(p.tier.tier)}${p.tier.score != null ? ` <small class="muted">${p.tier.score.toFixed(2)}</small>` : ''}</td>`
@@ -531,7 +531,7 @@ function filtered() {
     (!F.pos || p.pos === F.pos) && (!F.team || p.team === F.team) &&
     (!F.game || p.game === F.game) && (!q || p.player.toLowerCase().includes(q)) &&
     !(F.hideout && p.inj === 'Out') &&
-    !(F.tierOnly && activeQ1() && !(p.tier && ['LOCK', 'STRONG', 'LEAN'].includes(p.tier.tier))));
+    !(F.tierOnly && activeQ1() && !(p.tier && ['ELITE', 'STRONG', 'LEAN'].includes(p.tier.tier))));
   rows = rows.map(p => ({ p, d: derive(p) }));
   if (F.minhit > 0) rows = rows.filter(x => x.d.pct != null && x.d.pct >= F.minhit);
   const key = F.sort === 'hit' ? F.win : F.sort;
@@ -591,7 +591,7 @@ function render() {
   }).join('') : `<tr><td colspan="${cols().length}" class="empty">No props match these filters.</td></tr>`;
   $('#foot').textContent = `${rows.length} props` + (rows.length > CAP ? ` (showing top ${CAP} — narrow the filters to see the rest)` : '') +
     ` · *Opp rank = how many ${F.side === 'over' ? 'yards/stats' : 'stats'} the defense allows to that position over its last 17 games (1st = allows the most).` +
-    (activeQ1() ? ' · Tiers (🔒 LOCK ≥ .80, 🔥 STRONG ≥ .72, ⭐ LEAN ≥ .63) score each team\'s top WR / RB; click a player for the breakdown.' : '');
+    (activeQ1() ? ' · Tiers (💎 ELITE ≥ .80, 🔥 STRONG ≥ .72, ⭐ LEAN ≥ .63) score each team\'s top WR / RB; click a player for the breakdown.' : '');
   document.querySelectorAll('tr.row').forEach(tr => tr.onclick = e => {
     if (e.target.classList.contains('lineinput')) return;
     location.hash = '#/p/' + encodeURIComponent(tr.dataset.id);
@@ -705,7 +705,7 @@ function sharpCard(p) {
     body = `<div class="muted"><b class="r">Ruled out.</b> Latest injury report lists him ${esc(ti.status)}, so the model skips him.</div>`;
   } else {
     body = `<div class="tierhead">${tierBadge(ti.tier)}<b>${ti.score.toFixed(2)}</b>
-        <span class="muted">LOCK ≥ 0.80 · STRONG ≥ 0.72 · LEAN ≥ 0.63</span></div>
+        <span class="muted">ELITE ≥ 0.80 · STRONG ≥ 0.72 · LEAN ≥ 0.63</span></div>
       <table class="recent"><tr class="muted"><th>Signal</th><th>Value</th><th>Weight</th><th>Points</th></tr>
       ${ti.parts.map(([lab, disp, w, pts]) => `<tr><td>${esc(lab)}</td><td>${esc(disp)}</td><td class="muted">× ${w}</td><td>${pts.toFixed(3)}</td></tr>`).join('')}
       <tr><td colspan="3"><b>Total${ti.qb_out ? ' (after × 0.55 for starting QB out)' : ''}</b></td><td><b>${ti.score.toFixed(3)}</b></td></tr></table>

@@ -341,7 +341,7 @@ def game_entry(sched, r, mkey):
 # numbers, i.e. it favors tough defenses. A 2025 backtest shows weak defenses give more Q1 5+ hits
 # (WR 75% vs 63%), so the term is flipped here. Set to False to reproduce the original engine exactly.
 FIX_EPA_RANK_DIRECTION = True
-TIERS = [(0.80, "LOCK"), (0.72, "STRONG"), (0.63, "LEAN")]
+TIERS = [(0.80, "ELITE"), (0.72, "STRONG"), (0.63, "LEAN")]
 
 
 def clamp(x, lo=0.0, hi=1.0):

@@ -10,7 +10,7 @@ Leave the black Terminal window open while you use it; close it to stop the site
 - Player props: Rec Yds, Receptions, Rush Yds, Rush+Rec Yds, Pass Yds, Pass TDs, Anytime TD.
 - **Q1 Rec 5+ / Q1 Rush 5+**: did the player get 5+ yards in the first quarter? (fixed line 4.5, from
   play-by-play data). Same hit-rate windows, matchup rank and filters as every other prop.
-- **Sharpness tiers** on the Q1 tabs (🔒 LOCK ≥ .80, 🔥 STRONG ≥ .72, ⭐ LEAN ≥ .63), ported from `~/nfl-q1-bot`.
+- **Sharpness tiers** on the Q1 tabs (💎 ELITE ≥ .80, 🔥 STRONG ≥ .72, ⭐ LEAN ≥ .63), ported from `~/nfl-q1-bot`.
   Only each team's top WR (Q1 Rec) and top RB (Q1 Rush) are scored. Click a player for the full breakdown.
   The opponent-defense term is flipped vs the original engine (see `FIX_EPA_RANK_DIRECTION` in `app.py`).
 - **Game page** (click any game): every player's alt lines he cleared in each of his last 3/5/10 games,
