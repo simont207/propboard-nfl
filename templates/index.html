@@ -317,6 +317,7 @@ window.onerror = function (msg, src, line) {
     <label><input type="checkbox" id="hideout" checked> Hide players ruled Out</label>
     <label id="tierOnlyWrap" hidden><input type="checkbox" id="tierOnly"> Tiered plays only</label>
     <button class="chip" id="clearGame" hidden>✕ Game filter</button>
+    <button class="chip" id="openParlay" hidden>🎟️ Alt lines &amp; parlay for this game →</button>
   </div>
 
   <div class="tablewrap"><table>
@@ -474,6 +475,13 @@ const tierBadge = t => t ? `<span class="tier t${t}">${TIER_ICON[t]} ${t}</span>
 const tierCell = p => p.tier
   ? `<td>${tierBadge(p.tier.tier)}${p.tier.score != null ? ` <small class="muted">${p.tier.score.toFixed(2)}</small>` : ''}</td>`
   : `<td class="n" title="Tiers cover each team's top WR and top RB only">–</td>`;
+function openGameOnBoard(id, fromOtherView) {
+  Object.assign(F, { game: id, market: 'all', team: '' });
+  $('#team').value = '';
+  if (fromOtherView) location.hash = '#/';
+  render();
+  if (fromOtherView) window.scrollTo(0, 0);
+}
 function setMarket(k, doRender = true) {
   F.market = k;
   if (k.startsWith('q1_')) { F.sort = 'tier'; F.dir = -1; }
@@ -522,7 +530,7 @@ function filtered() {
 function render() {
   if (!board) return;
   renderHead();
-  $('#tierOnlyWrap').hidden = !isQ1(); $('#clearGame').hidden = !F.game;
+  $('#tierOnlyWrap').hidden = !isQ1(); $('#clearGame').hidden = !F.game; $('#openParlay').hidden = !F.game;
   document.querySelectorAll('#markets .pill').forEach(el => el.classList.toggle('on', el.dataset.k === F.market));
   document.querySelectorAll('#games .game').forEach(el => el.classList.toggle('on', el.dataset.id === F.game));
   const rows = filtered(), CAP = 300, shown = rows.slice(0, CAP);
@@ -584,7 +592,7 @@ function renderTop() {
       <div class="meta">Wk ${g.week} · ${t}${g.state === 'in' ? ' · LIVE' : ''}</div>
       <div class="meta">${esc(g.spread || '')}${g.total ? ' · O/U ' + g.total : ''}</div></div>`;
   }).join('');
-  document.querySelectorAll('#games .game').forEach(el => el.onclick = () => { location.hash = '#/g/' + el.dataset.id; });
+  document.querySelectorAll('#games .game').forEach(el => el.onclick = () => openGameOnBoard(el.dataset.id, false));
   $('#oddsInfo').textContent = board.has_key
     ? `Key saved.${board.odds_remaining ? ` Credits left this month: ${board.odds_remaining}.` : ''}` : 'No key saved yet.';
 }
@@ -854,6 +862,7 @@ $('#minhit').oninput = e => { F.minhit = +e.target.value || 0; render(); };
 $('#hideout').onchange = e => { F.hideout = e.target.checked; render(); };
 $('#tierOnly').onchange = e => { F.tierOnly = e.target.checked; render(); };
 $('#clearGame').onclick = () => { F.game = ''; render(); };
+$('#openParlay').onclick = () => { location.hash = '#/g/' + F.game; };
 document.querySelectorAll('#side button').forEach(b => b.onclick = () => {
   setSide(b.dataset.v);
 });
@@ -952,7 +961,7 @@ function renderGame(g) {
   document.querySelectorAll('#gvTeam button').forEach(el => el.onclick = () => { GV.team = el.dataset.t; renderGame(g); });
   $('#gvWin').onchange = e => { GV.win = +e.target.value; renderGame(g); };
   $('#gvMiss').onchange = e => { GV.miss = +e.target.value; renderGame(g); };
-  $('#gvBoard').onclick = () => { F.game = g.id; F.market = 'all'; F.team = ''; $('#team').value = ''; location.hash = '#/'; render(); };
+  $('#gvBoard').onclick = () => openGameOnBoard(g.id, true);
   document.querySelectorAll('#gameView .alt').forEach(el => el.onclick = () => {
     toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t);
   });
