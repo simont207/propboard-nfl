@@ -45,6 +45,15 @@ jobs:
           path: data/cfb/games
           key: cfb-boxscores-${{ github.run_id }}
           restore-keys: cfb-boxscores-
+      # Every run starts from a clean checkout with no data/ at all (it's gitignored, never committed) —
+      # without this, the 3-hourly runs that DON'T pull fresh SGO lines would have nothing to fall back
+      # to and would rebuild EST-only, wiping out the once-a-day pull until the next 13:00 UTC run. This
+      # restores whatever the most recent pull (from any run) wrote, so real lines persist between pulls.
+      - uses: actions/cache@v4
+        with:
+          path: data/sgo_odds.json
+          key: sgo-odds-${{ github.run_id }}
+          restore-keys: sgo-odds-
       - run: python build_static.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
