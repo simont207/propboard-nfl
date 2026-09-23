@@ -290,10 +290,26 @@
   .filter-group > label:first-child { display: block; font-size: 12px; color: var(--muted); margin-bottom: 7px;
     text-transform: uppercase; letter-spacing: .02em; }
   .filter-range { display: flex; align-items: center; gap: 8px; }
-  .filter-range input, .filter-group select { width: 100%; background: var(--bg); border: 1px solid var(--line);
+  .filter-range input, .filter-group select, .frow-body select { width: 100%; background: var(--bg); border: 1px solid var(--line);
     border-radius: 6px; padding: 7px 8px; }
   .filters-f { border-top: 1px solid var(--line); padding: 14px 16px; display: flex; gap: 10px; }
   .filters-f .btn { flex: 1; text-align: center; }
+  .frow { border-bottom: 1px solid var(--line); }
+  .frow-h { display: flex; align-items: center; gap: 10px; padding: 14px 2px; cursor: pointer; }
+  .frow-h .lbl { font-weight: 600; }
+  .frow-h .fbadge { background: var(--panel2); border-radius: 6px; padding: 2px 8px; font-size: 12px; color: var(--muted); }
+  .frow-h .chev { margin-left: auto; color: var(--muted); transition: transform .15s; }
+  .frow.open .frow-h .chev { transform: rotate(180deg); }
+  .frow-body { padding: 0 2px 16px; }
+  .frow-body select, .frow-body .filter-range { margin-top: 0; }
+  .toggle { position: relative; display: inline-block; width: 40px; height: 22px; margin-left: auto; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .track { position: absolute; inset: 0; background: var(--panel2); border: 1px solid var(--line); border-radius: 22px;
+    cursor: pointer; transition: background .15s; }
+  .toggle .track::before { content: ''; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px;
+    background: var(--muted); border-radius: 50%; transition: transform .15s; }
+  .toggle input:checked + .track { background: var(--green-dim); border-color: var(--green); }
+  .toggle input:checked + .track::before { transform: translateX(18px); background: var(--green); }
 
   .ava { display: inline-flex; align-items: center; justify-content: center; background: var(--panel2); color: var(--muted);
     font-weight: 700; flex: none; letter-spacing: .02em; }
@@ -454,7 +470,9 @@ let board = null;
 let ODDS_FMT = localStorage.getItem('pb_oddsfmt') === 'decimal' ? 'decimal' : 'american';   // global, not per-sport
 const F = { markets: new Set(['rec_yds']), pos: '', team: '', game: '', q: '', side: 'over', win: 'l10',
             minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1,
-            oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '' };
+            oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '', altLinesOpen: false };
+let SORT_LABEL = 'hit';         // cosmetic only: 'dvp' and 'grade' both resolve to F.sort='opp_rank' (grade is derived from rank)
+let FROW_OPEN = null;           // which filters-panel accordion row is expanded, if any
 let overrides = {};
 const EXPANDED = new Set();   // prop ids whose alt-line row is open on the board
 try { overrides = JSON.parse(localStorage.getItem(lsKey('pb_lines')) || '{}'); } catch (e) {}
@@ -477,7 +495,8 @@ function switchSport(sport) {
   document.querySelectorAll('#sportSwitch button').forEach(b => b.classList.toggle('on', b.dataset.s === sport));
   Object.assign(F, { markets: new Set([SPORT_DEFAULT_MARKET[sport]]), pos: '', team: '', game: '', q: '',
                       side: 'over', win: 'l10', minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1,
-                      oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '' });
+                      oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '', altLinesOpen: false });
+  SORT_LABEL = 'hit'; FROW_OPEN = null;
   overrides = {}; try { overrides = JSON.parse(localStorage.getItem(lsKey('pb_lines')) || '{}'); } catch (e) {}
   EXPANDED.clear(); SLIP.length = 0; SLIP_OPEN = false;
   try { SLIP.push(...JSON.parse(localStorage.getItem(lsKey('pb_slip')) || '[]')); } catch (e) {}
@@ -593,6 +612,7 @@ function openGameOnBoard(id, fromOtherView) {
   $('#team').value = '';
   if (fromOtherView) location.hash = '#/';
   render();
+  if (FILTERS_OPEN) renderFilters();
   if (fromOtherView) window.scrollTo(0, 0);
 }
 function syncSortForMarkets() {
@@ -619,7 +639,7 @@ function renderHead() {
   }).join('');
   document.querySelectorAll('#thead th').forEach(th => th.onclick = () => {
     const k = th.dataset.k; if (k === 'trend' || k === 'game') return;
-    if (['l5','l10','season','h2h'].includes(k)) { F.win = k; $('#win').value = k; F.sort = 'hit'; F.dir = -1; }
+    if (['l5','l10','season','h2h'].includes(k)) { F.win = k; $('#win').value = k; F.sort = 'hit'; SORT_LABEL = 'hit'; F.dir = -1; }
     else if (F.sort === k) F.dir *= -1;
     else { F.sort = k; F.dir = (k === 'player' || k === 'label' || k === 'opp_rank') ? 1 : -1; }
     render();
@@ -654,6 +674,7 @@ function filtered() {
     if (key === 'opp_rank') return p.opp_rank ?? 99;
     if (key === 'tier') return p.tier ? (p.tier.tier === 'OUT' ? -2 : p.tier.score ?? -1) : -3;
     if (key === 'odds') return (F.side === 'over' ? p.over : p.under) ?? -9999;
+    if (key === 'ev') return (F.side === 'over' ? p.ev_over : p.ev_under) ?? -9999;
     return 0;
   };
   rows.sort((a, b) => { const x = val(a), y = val(b); return (x > y ? 1 : x < y ? -1 : 0) * F.dir; });
@@ -674,7 +695,7 @@ function render() {
     const rn = poolN(p.pos, p.market), rq = Math.ceil(rn * 0.25);
     const rkc = rk == null ? 'n' : (F.side === 'over' ? (rk <= rq ? 'g' : rk > rn - rq ? 'r' : 'm') : (rk > rn - rq ? 'g' : rk <= rq ? 'r' : 'm'));
     const onCur = inSlip(p, d.line, F.side);
-    const expanded = EXPANDED.has(p.id);
+    const expanded = F.altLinesOpen || EXPANDED.has(p.id);
     const row = `<tr class="row" data-id="${esc(p.id)}">
       <td><div class="player">${pimg(p.player, p.img, 38)}
         <div><div class="nm">${esc(p.player)}${p.inj ? `<span class="tag ${esc(p.inj)}">${esc(p.inj.slice(0, 1) === 'Q' ? 'Q' : p.inj)}</span>` : ''}</div>
@@ -686,7 +707,7 @@ function render() {
         <span class="tag ${srcTagOf(p)[0]}">${srcTagOf(p)[1]}</span>
         <button class="qbtn addbtn ${onCur ? 'on' : ''}" data-id="${esc(p.id)}" data-t="${d.line}" data-side="${F.side}"
           title="${onCur ? 'Remove from parlay slip' : `Add ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} to your parlay`}">${onCur ? '✓' : '+'}</button>
-        <button class="qbtn altbtn ${expanded ? 'on' : ''}" data-id="${esc(p.id)}" title="Show alt lines for this prop">Alt${expanded ? ' ▴' : ' ▾'}</button></td>
+        ${F.altLinesOpen ? '' : `<button class="qbtn altbtn ${expanded ? 'on' : ''}" data-id="${esc(p.id)}" title="Show alt lines for this prop">Alt${expanded ? ' ▴' : ' ▾'}</button>`}</td>
       <td>${fmtOdds(odds)}${evBadge(p, F.side)}</td>
       ${hitCell(d.r.l5)}${hitCell(d.r.l10)}${hitCell(d.r.season)}${hitCell(d.r.h2h)}
       <td class="rank">${fmtNum(d.avg)}</td>
@@ -1099,13 +1120,13 @@ function toast(msg, err, ms = 4500) {
 $('#markets').innerHTML = MARKETS.map(([k, l]) => `<button class="pill" data-k="${k}">${l}</button>`).join('');
 document.querySelectorAll('#markets .pill').forEach(el => el.onclick = () => toggleMarket(el.dataset.k));
 $('#q').oninput = e => { F.q = e.target.value; render(); };
-$('#pos').onchange = e => { F.pos = e.target.value; render(); };
+$('#pos').onchange = e => { F.pos = e.target.value; render(); if (FILTERS_OPEN) renderFilters(); };
 $('#team').onchange = e => { F.team = e.target.value; render(); };
-$('#win').onchange = e => { F.win = e.target.value; F.sort = 'hit'; F.dir = -1; render(); };
-$('#minhit').oninput = e => { F.minhit = +e.target.value || 0; render(); };
+$('#win').onchange = e => { F.win = e.target.value; F.sort = 'hit'; SORT_LABEL = 'hit'; F.dir = -1; render(); if (FILTERS_OPEN) renderFilters(); };
+$('#minhit').oninput = e => { F.minhit = +e.target.value || 0; render(); if (FILTERS_OPEN) renderFilters(); };
 $('#hideout').onchange = e => { F.hideout = e.target.checked; render(); };
 $('#tierOnly').onchange = e => { F.tierOnly = e.target.checked; render(); };
-$('#clearGame').onclick = () => { F.game = ''; render(); };
+$('#clearGame').onclick = () => { F.game = ''; render(); if (FILTERS_OPEN) renderFilters(); };
 $('#openParlay').onclick = () => { location.hash = '#/g/' + F.game; };
 document.querySelectorAll('#side button').forEach(b => b.onclick = () => {
   setSide(b.dataset.v);
@@ -1364,43 +1385,97 @@ function filtersActiveCount() {
   if (F.oddsMin != null || F.oddsMax != null) n++;
   if (F.lineMin != null || F.lineMax != null) n++;
   if (F.gradeMin) n++;
+  if (F.win !== 'l10' || F.minhit > 0) n++;
+  if (F.game) n++;
+  if (F.pos) n++;
+  if (F.altLinesOpen) n++;
   return n;
+}
+const SORT_OPTIONS = { hit: 'Hit Rates', dvp: 'DvP', edge: 'Edge', grade: 'Matchup Grade' };
+const WIN_LABEL = { l5: 'L5', l10: 'L10', season: 'Season', h2h: 'H2H' };
+function frow(key, label, badge, bodyHtml) {
+  const open = FROW_OPEN === key;
+  return `<div class="frow ${open ? 'open' : ''}">
+    <div class="frow-h" data-row="${key}"><span class="lbl">${label}</span><span class="fbadge">${esc(badge)}</span><span class="chev">▾</span></div>
+    ${open ? `<div class="frow-body">${bodyHtml}</div>` : ''}
+  </div>`;
 }
 function renderFilters() {
   document.body.classList.toggle('filters-open', FILTERS_OPEN);
   $('#filtersCount').textContent = filtersActiveCount();
+  const gameBadge = F.game ? (() => { const g = board.games.find(x => x.id === F.game);
+    return g ? `${teamCode(g.away)} @ ${teamCode(g.home)}` : 'All'; })() : 'All';
+  const oddsBadge = (F.oddsMin != null || F.oddsMax != null) ? `${F.oddsMin ?? '-∞'} to ${F.oddsMax ?? '+∞'}` : 'All';
+  const lineBadge = (F.lineMin != null || F.lineMax != null) ? `${F.lineMin ?? 0} to ${F.lineMax ?? '∞'}` : 'All';
   $('#filtersPanel').innerHTML = `
     <div class="filters-h"><b>Filters</b><button class="btn" id="filtersClose">✕</button></div>
     <div class="filters-body">
-      <div class="filter-group"><label>Odds range (${F.side === 'over' ? 'Over' : 'Under'})</label>
+      <div class="frow-h" style="cursor:default"><span class="lbl">Alternate Lines</span><span class="fbadge">${F.altLinesOpen ? 'On' : 'Off'}</span>
+        <label class="toggle"><input type="checkbox" id="fAltLines" ${F.altLinesOpen ? 'checked' : ''}><span class="track"></span></label></div>
+      ${frow('sort', 'Sort By', SORT_OPTIONS[SORT_LABEL], `
+        <select id="fSort">${Object.entries(SORT_OPTIONS).map(([k, l]) => `<option value="${k}" ${SORT_LABEL === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+      ${frow('hitrates', 'Hit Rates', `${WIN_LABEL[F.win]} > ${F.minhit}%`, `
+        <div class="filter-range">
+          <select id="fWin">${Object.entries(WIN_LABEL).map(([k, l]) => `<option value="${k}" ${F.win === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          <span class="muted">&gt;</span>
+          <input type="number" id="fMinhit" min="0" max="100" step="5" value="${F.minhit}" style="max-width:80px">
+          <span class="muted">%</span>
+        </div>`)}
+      ${frow('games', 'Games', gameBadge, `
+        <select id="fGame"><option value="">All</option>
+          ${board.games.map(g => `<option value="${g.id}" ${F.game === g.id ? 'selected' : ''}>${teamCode(g.away)} @ ${teamCode(g.home)}</option>`).join('')}
+        </select>`)}
+      ${frow('positions', 'Positions', F.pos || 'All', `
+        <select id="fPos"><option value="">All</option>
+          ${['QB','RB','WR','TE','K','DL','LB','DB'].map(p => `<option value="${p}" ${F.pos === p ? 'selected' : ''}>${p}</option>`).join('')}
+        </select>`)}
+      ${frow('odds', 'Odds', oddsBadge, `
         <div class="filter-range">
           <input type="number" id="fOddsMin" placeholder="Min" value="${F.oddsMin ?? ''}">
           <span class="muted">to</span>
           <input type="number" id="fOddsMax" placeholder="Max" value="${F.oddsMax ?? ''}">
-        </div></div>
-      <div class="filter-group"><label>Line range</label>
+        </div>`)}
+      ${frow('lines', 'Lines', lineBadge, `
         <div class="filter-range">
           <input type="number" step="0.5" id="fLineMin" placeholder="Min" value="${F.lineMin ?? ''}">
           <span class="muted">to</span>
           <input type="number" step="0.5" id="fLineMax" placeholder="Max" value="${F.lineMax ?? ''}">
-        </div></div>
-      <div class="filter-group"><label>Matchup Grade</label>
+        </div>`)}
+      <div class="filter-group" style="margin-top:16px"><label>Matchup Grade</label>
         <select id="fGrade">
           <option value="">All Grades</option>
           ${GRADES.map(g => `<option value="${g}" ${F.gradeMin === g ? 'selected' : ''}>${g} or better</option>`).join('')}
         </select></div>
     </div>
     <div class="filters-f"><button class="btn" id="filtersClear">Clear Filters</button><button class="btn primary" id="filtersDone">Done</button></div>`;
+  document.querySelectorAll('.frow-h[data-row]').forEach(el => el.onclick = () => {
+    FROW_OPEN = FROW_OPEN === el.dataset.row ? null : el.dataset.row;
+    renderFilters();
+  });
+  $('#fAltLines').onchange = e => { F.altLinesOpen = e.target.checked; EXPANDED.clear(); renderFilters(); render(); };
   $('#filtersClose').onclick = () => { FILTERS_OPEN = false; renderFilters(); };
   $('#filtersDone').onclick = () => { FILTERS_OPEN = false; renderFilters(); };
   $('#filtersClear').onclick = () => {
-    Object.assign(F, { oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '' });
+    Object.assign(F, { oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '',
+                        win: 'l10', minhit: 0, game: '', pos: '', altLinesOpen: false });
+    SORT_LABEL = 'hit'; F.sort = 'hit'; F.dir = -1;
+    $('#win').value = 'l10'; $('#minhit').value = 0; $('#pos').value = ''; EXPANDED.clear();
     renderFilters(); render();
   };
-  $('#fOddsMin').onchange = e => { F.oddsMin = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
-  $('#fOddsMax').onchange = e => { F.oddsMax = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
-  $('#fLineMin').onchange = e => { F.lineMin = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
-  $('#fLineMax').onchange = e => { F.lineMax = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
+  if ($('#fSort')) $('#fSort').onchange = e => {
+    SORT_LABEL = e.target.value;
+    F.sort = SORT_LABEL === 'hit' ? 'hit' : SORT_LABEL === 'edge' ? 'ev' : 'opp_rank';
+    F.dir = -1;
+    renderFilters(); render();
+  };
+  if ($('#fWin')) $('#fWin').onchange = e => { F.win = e.target.value; $('#win').value = F.win; renderFilters(); render(); };
+  if ($('#fMinhit')) $('#fMinhit').onchange = e => { F.minhit = +e.target.value || 0; $('#minhit').value = F.minhit; renderFilters(); render(); };
+  if ($('#fGame')) $('#fGame').onchange = e => { F.game = e.target.value; renderFilters(); render(); };
+  if ($('#fPos')) $('#fPos').onchange = e => { F.pos = e.target.value; $('#pos').value = F.pos; renderFilters(); render(); };
+  if ($('#fOddsMin')) $('#fOddsMin').onchange = e => { F.oddsMin = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
+  if ($('#fOddsMax')) $('#fOddsMax').onchange = e => { F.oddsMax = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
+  if ($('#fLineMin')) $('#fLineMin').onchange = e => { F.lineMin = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
+  if ($('#fLineMax')) $('#fLineMax').onchange = e => { F.lineMax = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
   $('#fGrade').onchange = e => { F.gradeMin = e.target.value; renderFilters(); render(); };
 }
 $('#btnFilters').onclick = () => { FILTERS_OPEN = !FILTERS_OPEN; renderFilters(); };
