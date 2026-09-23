@@ -1,9 +1,12 @@
 name: Publish PropBoard
 
 # Rebuilds the site every 3 hours (and whenever the code changes, or when you click "Run workflow").
+# The 13:00 UTC run (and any manual "Run workflow" click) also pulls real SportsGameOdds lines — once a
+# day keeps it well under the free tier's 2,500-credit/month budget; the other 3-hourly runs stay EST-only.
 on:
   schedule:
     - cron: "0 */3 * * *"
+    - cron: "0 13 * * *"
   push:
     branches: [main]
   workflow_dispatch:
@@ -20,6 +23,10 @@ concurrency:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      # Only set on the once-daily 13:00 UTC run or a manual dispatch — never on every push, or on the
+      # 3-hourly runs, which would blow past the free tier's monthly credit budget.
+      SGO_API_KEY: ${{ (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 13 * * *') && secrets.SGO_API_KEY || '' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

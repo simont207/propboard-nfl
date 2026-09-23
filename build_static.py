@@ -33,6 +33,14 @@ b{color:#4ade80}p{color:#8b9a91;max-width:420px}</style></head>
     print(f"TAKEDOWN_AT {takedown} has passed: published the offline page.")
     sys.exit(0)
 
+sgo_key = os.environ.get("SGO_API_KEY", "").strip()
+if sgo_key:
+    try:
+        sgo = app.pull_sgo(sgo_key, games=app.get_games())
+        print(f"Pulled real SportsGameOdds lines for the public build: {sgo['events']} events.")
+    except Exception as e:
+        print(f"SportsGameOdds pull failed, publishing with EST-only lines instead: {e}")
+
 board = app.get_board(force=True)
 if not board["games"] or len(board["props"]) < 50:
     sys.exit(f"Refusing to publish: only {len(board['games'])} games / {len(board['props'])} props found.")
