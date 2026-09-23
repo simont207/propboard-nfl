@@ -254,6 +254,175 @@ def load_odds():
         return {"pulled": None, "remaining": None, "lines": {}}
 
 
+# --------------------------------------------------- SportsGameOdds (NFL only) ---
+# Real book lines, real alt-line prices, and a fair (no-vig) line for EV — see nfl-props-site.md
+# memory for how this was scoped. Manual pull only (button in the app): 1 credit per game, ~16-20
+# for a full NFL slate, 2,500/month on the free "amateur" tier — nowhere near enough to run on the
+# 3-hourly auto-rebuild, so this never runs automatically.
+SGO_KEY_FILE = DATA / "sgo_key.txt"
+SGO_FILE = DATA / "sgo_odds.json"
+SGO_API = "https://api.sportsgameodds.com/v2"
+SGO_MARKETS = {                    # SportsGameOdds statID -> our market key
+    "passing_yards": "pass_yds", "passing_touchdowns": "pass_tds", "rushing_yards": "rush_yds",
+    "receiving_yards": "rec_yds", "receiving_receptions": "rec", "rushing+receiving_yards": "rush_rec_yds",
+    "touchdowns": "any_td",        # betTypeID 'yn' (yes/no), not 'ou' — handled separately below
+}
+EXTRA_BOOKS = ["bovada", "pointsbet", "unibet", "williamhill"]   # SGO books not already in BOOK_ORDER
+for _b in EXTRA_BOOKS:
+    if _b not in BOOK_ORDER:
+        BOOK_ORDER.append(_b)
+
+
+def load_sgo_key():
+    try:
+        return SGO_KEY_FILE.read_text().strip() or None
+    except Exception:
+        return None
+
+
+def load_sgo():
+    try:
+        return json.loads(SGO_FILE.read_text())
+    except Exception:
+        return {"pulled": None, "remaining": None, "lines": {}}
+
+
+def _sgo_american(s):
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def pull_sgo(key, games=None):
+    """One /events call per ~10 games (paginated); each EVENT returned costs 1 credit regardless of
+    how many markets/books come back with it. Scoped to our own board's date window (this week +
+    next) via startsAfter/startsBefore — without that, SportsGameOdds returns every event with odds
+    posted anywhere in the season (60+ games, most of them weeks away), ~4x the credits for games we
+    don't even show."""
+    params_extra = {}
+    if games:
+        import datetime
+        last = max(g["date"] for g in games)[:10]
+        end = (datetime.date.fromisoformat(last) + datetime.timedelta(days=1)).isoformat()
+        params_extra = {"startsAfter": min(g["date"] for g in games)[:10], "startsBefore": end}
+    events, cursor = [], None
+    for _ in range(6):                              # a full NFL week is ~16 games = 2 pages
+        params = {"apiKey": key, "leagueID": "NFL", "oddsAvailable": "true", "includeAltLines": "true",
+                  **params_extra}
+        if cursor:
+            params["cursor"] = cursor
+        r = requests.get(f"{SGO_API}/events", params=params, timeout=45)
+        if r.status_code != 200:
+            try:
+                msg = r.json().get("error", f"HTTP {r.status_code}")
+            except Exception:
+                msg = f"HTTP {r.status_code}"
+            raise RuntimeError(msg)
+        d = r.json()
+        events.extend(d.get("data", []))
+        cursor = d.get("nextCursor")
+        if not cursor:
+            break
+
+    # Map each SGO event to OUR game id by (home, away) team codes — an oddID like
+    # "touchdowns-X-game-yn-yes" repeats byte-for-byte for the same player across a different game
+    # (e.g. his team's game this week vs. next week, both inside our pull window), so without this a
+    # player with games in both weeks gets his two games' odds silently merged into one (caught by a
+    # nonsense +198% EV that traced back to two different games' prices overwriting each other).
+    game_by_teams = {}
+    if games:
+        for g in games:
+            home, away = ESPN_TO_NFLVERSE.get(g["home"], g["home"]), ESPN_TO_NFLVERSE.get(g["away"], g["away"])
+            game_by_teams[(home, away)] = g["id"]
+
+    lines = {}
+    for ev in events:
+        players = ev.get("players", {})
+        teams = ev.get("teams", {})
+        home_abbr = (teams.get("home", {}).get("names") or {}).get("short")
+        away_abbr = (teams.get("away", {}).get("names") or {}).get("short")
+        our_game_id = game_by_teams.get((home_abbr, away_abbr)) or ev["eventID"]
+        for o in ev.get("odds", {}).values():
+            mkey = SGO_MARKETS.get(o.get("statID"))
+            pid = o.get("playerID")
+            if not mkey or not pid or pid not in players:
+                continue
+            if o.get("periodID") != "game":         # skip 1h/2h/1q/etc variants — we only have full-game props
+                continue
+            # "touchdowns" carries TWO different markets under one statID: yes/no (anytime TD, what
+            # our any_td is) and over/under 1.5+ (2+ TDs, a market we don't have). Without this gate
+            # they silently overwrite each other's odds.
+            bt = o.get("betTypeID")
+            if (mkey == "any_td") != (bt == "yn"):
+                continue
+            side = o.get("sideID")
+            slot = "over" if side in ("over", "yes") else "under" if side in ("under", "no") else None
+            if not slot:
+                continue
+            name = norm_name(players[pid].get("name", ""))
+            entry = lines.setdefault(f"{name}|{mkey}|{our_game_id}", {
+                "line": None, "fair_line": None, "over": None, "under": None,
+                "fair_over": None, "fair_under": None, "books": {}, "alts": {},
+            })
+            if o.get("bookOverUnder") is not None:
+                entry["line"] = float(o["bookOverUnder"])
+            if o.get("fairOverUnder") is not None:
+                entry["fair_line"] = float(o["fairOverUnder"])
+            am, fair_am = _sgo_american(o.get("bookOdds")), _sgo_american(o.get("fairOdds"))
+            if am is not None:
+                entry[slot] = am
+            if fair_am is not None:
+                entry[f"fair_{slot}"] = fair_am
+            for book, b in (o.get("byBookmaker") or {}).items():
+                if not b.get("available"):
+                    continue
+                bam = _sgo_american(b.get("odds"))
+                if bam is None:
+                    continue
+                be = entry["books"].setdefault(book, {"book": book, "line": b.get("overUnder"), "over": None, "under": None})
+                be[slot] = bam
+                if b.get("overUnder") is not None:
+                    be["line"] = b.get("overUnder")
+                for alt in b.get("altLines") or []:
+                    if not alt.get("available") or alt.get("overUnder") is None:
+                        continue
+                    aam = _sgo_american(alt.get("odds"))
+                    if aam is None:
+                        continue
+                    try:
+                        t = float(alt["overUnder"])
+                    except (TypeError, ValueError):
+                        continue
+                    ae = entry["alts"].setdefault(t, {})
+                    if slot not in ae or book == "fanduel":     # prefer fanduel's price when several books tie
+                        ae[slot] = {"book": book, "odds": aam}
+
+    for entry in lines.values():
+        entry["books"] = sorted(entry["books"].values(),
+                                 key=lambda b: BOOK_ORDER.index(b["book"]) if b["book"] in BOOK_ORDER else 99)
+        entry["alts"] = [{"t": t, **sides} for t, sides in sorted(entry["alts"].items())]
+
+    out = {"pulled": time.time(), "events": len(events), "lines": lines}
+    SGO_FILE.write_text(json.dumps(out))
+    return out
+
+
+def american_to_prob(odds):
+    if odds is None:
+        return None
+    return 100 / (odds + 100) if odds > 0 else -odds / (-odds + 100)
+
+
+def ev_pct(book_odds, fair_odds):
+    """EV% of a $1 bet: uses the fair (no-vig) odds' implied probability as the 'true' one."""
+    if book_odds is None or fair_odds is None:
+        return None
+    p_fair = american_to_prob(fair_odds)
+    d_book = 1 + (book_odds / 100 if book_odds > 0 else 100 / abs(book_odds))
+    return round((p_fair * d_book - 1) * 100, 1)
+
+
 def pull_odds(api_key):
     """One pull = 1 call per game x 7 markets. Only runs when the user clicks the button."""
     r = requests.get(f"{ODDS_API}/events", params={"apiKey": api_key}, timeout=30)
@@ -485,6 +654,7 @@ def build_board():
     games = get_games()
     inj, inj_week, inj_latest = load_injuries()
     odds = load_odds()
+    sgo = load_sgo()
     ranks, dvp, recent = defense_ranks(df)
     tiers = q1_tiers(df, games, inj_latest)
     sched = load_schedule()
@@ -532,6 +702,7 @@ def build_board():
                         "log": [game_entry(sched, r, mkey) for r in hl.itertuples()],
                         "vol": round(float(vol), 1),
                         "tier": tiers.get((pid, mkey, g["id"])),
+                        "ev_over": None, "ev_under": None, "real_alts": [], "fair_line": None,
                     }
                     books = odds["lines"].get(f"{norm_name(p.player_display_name)}|{mkey}")
                     if books:
@@ -539,12 +710,29 @@ def build_board():
                                    if b["book"] in BOOK_ORDER else 99)
                         row.update(line=books[0]["line"], src="book", over=books[0].get("over"),
                                    under=books[0].get("under"), books=books)
+
+                    sg = sgo["lines"].get(f"{norm_name(p.player_display_name)}|{mkey}|{g['id']}")
+                    if sg and sg["books"]:
+                        line = sg["line"] if sg["line"] is not None else est
+                        row.update(line=line, src="book", over=sg["over"], under=sg["under"], books=sg["books"])
+                        # EV only where the book's own line is close enough to the fair line that comparing
+                        # their odds head-to-head is a fair apples-to-apples read (any_td has no line at all,
+                        # so it's always comparable). A big line gap means they're pricing different things.
+                        comparable = mkey == "any_td" or (sg["fair_line"] is not None and abs(line - sg["fair_line"]) <= 1.0)
+                        if comparable:
+                            row["ev_over"] = ev_pct(sg["over"], sg["fair_over"])
+                            row["ev_under"] = ev_pct(sg["under"], sg["fair_under"])
+                        row["fair_line"] = sg["fair_line"]
+                        row["real_alts"] = [{"t": a["t"], "over_odds": a.get("over", {}).get("odds"),
+                                              "over_book": a.get("over", {}).get("book")}
+                                             for a in sg["alts"] if a.get("over")]
                     rows.append(row)
 
     return {
         "season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
         "has_key": bool(load_config().get("odds_key")),
         "odds_pulled": odds["pulled"], "odds_remaining": odds["remaining"],
+        "has_sgo_key": bool(load_sgo_key()), "sgo_pulled": sgo["pulled"],
         "inj_week": inj_week, "built": time.time(),
     }
 
@@ -614,6 +802,20 @@ def api_pull_odds():
     except Exception as e:
         return jsonify(error=f"Could not pull lines: {e}"), 502
     return jsonify(get_board(force=True))
+
+
+@app.route("/api/pull-sgo", methods=["POST"])
+def api_pull_sgo():
+    key = load_sgo_key()
+    if not key:
+        return jsonify(error="No SportsGameOdds key found at data/sgo_key.txt."), 400
+    try:
+        sgo = pull_sgo(key, games=get_games())
+    except Exception as e:
+        return jsonify(error=f"Could not pull SportsGameOdds lines: {e}"), 502
+    board = get_board(force=True)
+    board["sgo_events_pulled"] = sgo["events"]
+    return jsonify(board)
 
 
 if __name__ == "__main__":

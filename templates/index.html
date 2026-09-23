@@ -226,6 +226,9 @@
   .altbtn { padding: 3px 8px; font-size: 11px; font-weight: 600; white-space: nowrap; }
   .altbtn.on { border-color: var(--green); color: var(--green); }
   .altbtn:hover { border-color: var(--green-dim); }
+  .ev { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+  .ev.g { background: #123524; color: var(--green); } .ev.r { background: #4a1d1d; color: var(--red); }
+  .ev.n { background: var(--panel2); color: var(--muted); }
 
   /* parlay slip */
   #slip { position: fixed; top: 0; right: 0; bottom: 0; width: 350px; max-width: 100%; background: var(--panel);
@@ -374,6 +377,15 @@ window.onerror = function (msg, src, line) {
   <p class="note" id="oddsInfo"></p>
   <p class="note">A pull uses about 7 credits per game (~110 for a full slate). The free plan gives 500 a month,
     so pull once or twice a week. Nothing is pulled automatically.</p>
+  <hr style="border-color:var(--line);margin:16px 0">
+  <h2 style="margin:0 0 6px">SportsGameOdds (NFL, richer data)</h2>
+  <p class="muted">A second, separate real-lines source with 9 books, real alt-line prices, and a fair (no-vig)
+    line to check each book's price against — that's what powers the EV numbers you'll see once you pull.
+    NFL only, and it's its own key (saved to <code>data/sgo_key.txt</code>, not entered here).</p>
+  <button class="btn primary" id="btnPullSgo">Pull real lines + EV now</button>
+  <p class="note" id="sgoInfo"></p>
+  <p class="note">One pull costs about 16-20 credits (one per game shown) — 2,500 free a month, so this comfortably
+    supports pulling every day if you want. Also never runs automatically.</p>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -490,6 +502,14 @@ const srcTagOf = p => overrides[p.id] != null ? ['est', 'CUSTOM'] : p.src === 'b
 const lineText = (p, line, side) => p.src === 'fixed' && line === 4.5
   ? (side === 'over' ? '5+ yards' : '4 or fewer yards') : `${side === 'over' ? 'Over' : 'Under'} ${line}`;
 const fmtOdds = o => o == null ? '–' : (o > 0 ? '+' + o : o);
+// EV%: how much better (or worse) a book's price is than SportsGameOdds' own fair (no-vig) line.
+// Only set server-side when the book's own line is close enough to the fair line to compare fairly.
+function evBadge(p, side) {
+  const ev = side === 'over' ? p.ev_over : p.ev_under;
+  if (ev == null) return '';
+  const cls = ev >= 3 ? 'g' : ev <= -3 ? 'r' : 'n';
+  return ` <span class="ev ${cls}" title="Expected value of a $1 bet at this price, vs SportsGameOdds' fair line">${ev > 0 ? '+' : ''}${ev}% EV</span>`;
+}
 const fmtNum = n => n == null ? '–' : (Number.isInteger(n) ? n : n.toFixed(1));
 const ord = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({1:'st',2:'nd',3:'rd'}[n % 10] || 'th'));
 function hitCell(x) {
@@ -611,19 +631,21 @@ function render() {
         <button class="qbtn addbtn ${onCur ? 'on' : ''}" data-id="${esc(p.id)}" data-t="${d.line}" data-side="${F.side}"
           title="${onCur ? 'Remove from parlay slip' : `Add ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} to your parlay`}">${onCur ? '✓' : '+'}</button>
         <button class="qbtn altbtn ${expanded ? 'on' : ''}" data-id="${esc(p.id)}" title="Show alt lines for this prop">Alt${expanded ? ' ▴' : ' ▾'}</button></td>
-      <td>${fmtOdds(odds)}</td>
+      <td>${fmtOdds(odds)}${evBadge(p, F.side)}</td>
       ${hitCell(d.r.l5)}${hitCell(d.r.l10)}${hitCell(d.r.season)}${hitCell(d.r.h2h)}
       <td class="rank">${fmtNum(d.avg)}</td>
       <td class="rank ${rkc}">${rk ? ord(rk) : '–'} ${(() => { const gr = gradeOf(rk, F.side, rn); return gr ? `<span class="grade ${gr.cls}">${gr.L}</span>` : ''; })()}</td>
       <td>${spark(p, d.line)}</td></tr>`;
     if (!expanded) return row;
-    const { chips, win, miss } = bestAltChips(p);
+    const useReal = p.real_alts && p.real_alts.length > 0;
+    const { chips, win, miss } = useReal ? { chips: [], win: 0, miss: 0 } : bestAltChips(p);
     const clearedText = miss ? `all but one of his last ${win}` : `each of his last ${win}`;
-    const altHtml = chips.length
+    const altHtml = useReal ? realAltHtml(p) : chips.length
       ? `<div class="alts">${chips.map(c => `<button class="alt ${inSlip(p, c.t, 'over') ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(p.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div>`
       : `<div class="muted" style="font-size:12px">No alt line cleared in ${clearedText} games. <a href="#/g/${esc(p.game)}" style="color:var(--green)">Open the full game page</a> to see his raw numbers.</div>`;
+    const capText = useReal ? 'Real prices from sportsbooks — click one to add it at that price' : 'Alt lines are shown as Over — pick a lower number for an easier hit';
     return row + `<tr class="altrow"><td colspan="${cols().length}">
-      <div class="muted" style="font-size:12px;margin-bottom:6px">Alt lines are shown as Over — pick a lower number for an easier hit${chips.length ? `, cleared in ${clearedText} games` : ''}. Click one to add it (swaps out ${esc(p.label)} ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} if that's in your slip).</div>
+      <div class="muted" style="font-size:12px;margin-bottom:6px">${capText}${!useReal && chips.length ? `, cleared in ${clearedText} games` : ''}. Click one to add it (swaps out ${esc(p.label)} ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} if that's in your slip).</div>
       ${altHtml}</td></tr>`;
   }).join('') : `<tr><td colspan="${cols().length}" class="empty">No props match these filters.</td></tr>`;
   $('#foot').textContent = `${rows.length} props` + (rows.length > CAP ? ` (showing top ${CAP} — narrow the filters to see the rest)` : '') +
@@ -640,7 +662,7 @@ function render() {
   document.querySelectorAll('#tbody .altbtn').forEach(el => el.onclick = e => { e.stopPropagation(); toggleAltRow(el.dataset.id); });
   document.querySelectorAll('#tbody .altrow .alt').forEach(el => el.onclick = e => {
     e.stopPropagation();
-    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, 'over');
+    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, 'over', el.dataset.odds ? +el.dataset.odds : null);
   });
   document.querySelectorAll('.lineinput').forEach(inp => {
     inp.onclick = e => e.stopPropagation();
@@ -676,6 +698,11 @@ function renderTop() {
   document.querySelectorAll('#games .game').forEach(el => el.onclick = () => openGameOnBoard(el.dataset.id, false));
   $('#oddsInfo').textContent = board.has_key
     ? `Key saved.${board.odds_remaining ? ` Credits left this month: ${board.odds_remaining}.` : ''}` : 'No key saved yet.';
+  if ($('#sgoInfo')) $('#sgoInfo').textContent = SPORT !== 'nfl' ? 'NFL only — switch sport to use this.'
+    : !board.has_sgo_key ? 'No key found at data/sgo_key.txt.'
+    : board.sgo_pulled ? `Last pulled ${new Date(board.sgo_pulled * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`
+    : 'Key found, never pulled yet.';
+  if ($('#btnPullSgo')) $('#btnPullSgo').disabled = SPORT !== 'nfl';
 }
 
 // ---- player page ------------------------------------------------------
@@ -864,7 +891,7 @@ function renderPlayer(p) {
         <div class="stat"><div class="k">${avgLbl}</div><div class="v ${avg == null ? 'n' : fav(avg > line)}">${avg == null ? '–' : (avg > line ? '▲ ' : '▼ ') + fmtNum(Math.round(avg * 10) / 10)}</div></div>
         <div class="stat"><div class="k">Line</div><div class="v"><input class="lineinput" id="pvLine" type="number" step="0.5" value="${line}"> <span class="tag ${srcTag[0]}">${srcTag[1]}</span>
           <button class="qbtn addbtn ${inSlip(p, line, side) ? 'on' : ''}" id="pvAdd" data-id="${esc(p.id)}" data-t="${line}" data-side="${side}"
-            title="${inSlip(p, line, side) ? 'Remove from parlay slip' : `Add ${side === 'over' ? 'Over' : 'Under'} ${line} to your parlay`}">${inSlip(p, line, side) ? '✓' : '+'}</button></div></div>
+            title="${inSlip(p, line, side) ? 'Remove from parlay slip' : `Add ${side === 'over' ? 'Over' : 'Under'} ${line} to your parlay`}">${inSlip(p, line, side) ? '✓' : '+'}</button>${evBadge(p, side)}</div></div>
         <div class="stat"><div class="k">Prop</div><div class="v">${esc(p.label)}</div></div>
         <div class="stat"><div class="k">Hit rate · ${esc(cur[1])}</div><div class="v ${pcls(R[cur[0]])}">${R[cur[0]].n ? Math.round(R[cur[0]].pct) + '% ' : '–'}<small>${R[cur[0]].n ? R[cur[0]].hits + '/' + R[cur[0]].n : ''}</small></div></div>
         <div class="stat"><div class="k">Matchup rank</div><div class="v ${rkc}">${rk ? ord(rk) : '–'} <small>vs ${esc(p.pos)}</small></div></div>
@@ -874,6 +901,9 @@ function renderPlayer(p) {
       ${gr ? `<div class="gbadge"><div class="L ${gr.cls === 'gA' ? 'g' : gr.cls === 'gD' ? 'r' : ''}">${gr.L}</div><div class="t">Matchup grade<br>for ${side === 'over' ? 'Over' : 'Under'}</div></div>` : ''}
     </div>
     ${(() => {
+      if (p.real_alts && p.real_alts.length) return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
+        <b>Alt lines</b> <span class="muted" style="font-size:12px">— real prices from sportsbooks. Click one to add it at that price.</span>
+        <div style="margin-top:8px">${realAltHtml(p)}</div></div>`;
       const { chips, win, miss } = bestAltChips(p);
       const clearedText = miss ? `all but one of his last ${win}` : `each of his last ${win}`;
       if (!chips.length) return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
@@ -935,7 +965,7 @@ function renderPlayer(p) {
   if ($('#pvLines')) $('#pvLines').onclick = openModal;
   if ($('#pvAdd')) $('#pvAdd').onclick = () => toggleLeg(p, line, side);
   document.querySelectorAll('#pvMain .alt').forEach(el => el.onclick = () => {
-    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, 'over');
+    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, 'over', el.dataset.odds ? +el.dataset.odds : null);
   });
   const li = $('#pvLine');
   li.onkeydown = e => { if (e.key === 'Enter') li.blur(); };
@@ -985,6 +1015,15 @@ $('#btnPull').onclick = async () => {
   catch (e) { toast(e.message, true); }
   b.disabled = false; b.textContent = 'Pull lines now';
 };
+if ($('#btnPullSgo')) $('#btnPullSgo').onclick = async () => {
+  const b = $('#btnPullSgo'); b.disabled = true; b.textContent = 'Pulling… (about a minute)';
+  try {
+    const board2 = await load('/api/pull-sgo', { method: 'POST' });
+    setBoard(board2); closeAll();
+    toast(`Real lines loaded${board2.sgo_events_pulled ? ` for ${board2.sgo_events_pulled} games` : ''}`);
+  } catch (e) { toast(e.message, true); }
+  b.disabled = SPORT !== 'nfl'; b.textContent = 'Pull real lines + EV now';
+};
 // ---- game page: alt lines + parlay slip --------------------------------
 const GV = { game: null, market: 'all', team: '', win: 5, miss: 0 };
 const ALT = { rec_yds: { step: 10, min: 30 }, rush_yds: { step: 10, min: 30 }, rush_rec_yds: { step: 10, min: 40 },
@@ -1020,6 +1059,15 @@ function bestAltChips(p) {
   const [win, miss] = ALT_TIERS[ALT_TIERS.length - 1];
   return { chips: [], win, miss };
 }
+// Real alt-line prices from SportsGameOdds (NFL only, after a pull) — shown instead of the
+// history-based ladder whenever we have them, since a real bettable price beats a guess from
+// recent games. Clicking one pre-fills the leg's odds, so the parlay payout works immediately.
+function realAltHtml(p) {
+  const alts = p.real_alts.slice(0, 8);
+  return `<div class="alts">${alts.map(a => `<button class="alt real ${inSlip(p, a.t, 'over') ? 'on' : ''}"
+      data-id="${esc(p.id)}" data-t="${a.t}" data-odds="${a.over_odds}" data-base=""
+      title="${a.over_book} · real price">${a.t}+<small>${fmtOdds(a.over_odds)}</small></button>`).join('')}</div>`;
+}
 const legText = l => {
   const side = l.side || 'over';
   if (l.market === 'any_td') return side === 'over' ? (l.thr === 1 ? 'Anytime TD' : `${l.thr}+ TDs`) : `Under ${l.thr} TDs`;
@@ -1036,9 +1084,11 @@ function renderGame(g) {
   if (GV.market !== 'all' && !present.some(([k]) => k === GV.market)) GV.market = 'all';
   const byPlayer = new Map();
   all.filter(x => (GV.market === 'all' || x.market === GV.market) && (!GV.team || x.team === GV.team)).forEach(x => {
-    const chips = altChips(x); if (!chips.length) return;
+    const useReal = x.real_alts && x.real_alts.length > 0;
+    const chips = useReal ? [] : altChips(x);
+    if (!useReal && !chips.length) return;
     if (!byPlayer.has(x.pid)) byPlayer.set(x.pid, { p: x, rows: [], vol: 0 });
-    const e = byPlayer.get(x.pid); e.rows.push({ p: x, chips }); e.vol = Math.max(e.vol, x.vol);
+    const e = byPlayer.get(x.pid); e.rows.push({ p: x, chips, useReal }); e.vol = Math.max(e.vol, x.vol);
   });
   const players = [...byPlayer.values()].sort((a, b) =>
     (b.p.team === away) - (a.p.team === away) || POS_ORDER[a.p.pos] - POS_ORDER[b.p.pos] || b.vol - a.vol);
@@ -1066,8 +1116,8 @@ function renderGame(g) {
       <div class="pcard"><div class="ph">${pimg(p.player, p.img, 42)}
         <div><a href="#/p/${encodeURIComponent(rows[0].p.id)}">${esc(p.player)}</a>${p.inj ? `<span class="tag ${esc(p.inj)}">${esc(p.inj[0])}</span>` : ''}
         <div class="muted" style="font-size:12px">${esc(p.pos)} · ${esc(p.team)}</div></div></div>
-        ${rows.map(({ p: q, chips }) => `<div class="mrow"><div class="ml">${q.market === 'q1_rec' ? 'Q1 receiving yards' : q.market === 'q1_rush' ? 'Q1 rushing yards' : esc(q.label)}</div><div class="alts">
-          ${chips.map(c => `<button class="alt ${inSlip(q, c.t) ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(q.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div></div>`).join('')}
+        ${rows.map(({ p: q, chips, useReal }) => `<div class="mrow"><div class="ml">${q.market === 'q1_rec' ? 'Q1 receiving yards' : q.market === 'q1_rush' ? 'Q1 rushing yards' : esc(q.label)}${useReal ? ' <span class="muted" style="font-size:11px">· real prices</span>' : ''}</div>
+          ${useReal ? realAltHtml(q) : `<div class="alts">${chips.map(c => `<button class="alt ${inSlip(q, c.t) ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(q.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div>`}</div>`).join('')}
       </div>`).join('') || `<div class="empty" style="grid-column:1/-1">No alt lines cleared ${GV.miss ? 'in all but one of' : 'in every one of'} the ${winTxt} games. Try "all but one game" or a longer window.</div>`}</div>`;
   document.querySelectorAll('#gameView [data-m]').forEach(el => el.onclick = () => { GV.market = el.dataset.m; renderGame(g); });
   document.querySelectorAll('#gvTeam button').forEach(el => el.onclick = () => { GV.team = el.dataset.t; renderGame(g); });
@@ -1075,7 +1125,7 @@ function renderGame(g) {
   $('#gvMiss').onchange = e => { GV.miss = +e.target.value; renderGame(g); };
   $('#gvBoard').onclick = () => openGameOnBoard(g.id, true);
   document.querySelectorAll('#gameView .alt').forEach(el => el.onclick = () => {
-    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t);
+    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, 'over', el.dataset.odds ? +el.dataset.odds : null);
   });
 }
 
@@ -1091,12 +1141,12 @@ function toggleAltRow(id) {          // board: open/close the inline alt-line ro
   render();
   window.scrollTo(0, y);
 }
-function toggleLeg(p, thr, side = 'over') {
+function toggleLeg(p, thr, side = 'over', realOdds = null) {
   const i = SLIP.findIndex(l => l.pid === p.pid && l.market === p.market && l.game === p.game);
   if (i >= 0 && SLIP[i].thr === thr && (SLIP[i].side || 'over') === side) SLIP.splice(i, 1);
   else {
     const leg = { pid: p.pid, market: p.market, game: p.game, thr, side, name: p.player, mlabel: p.label, team: p.team,
-                  opp: p.opp, home: p.home, odds: i >= 0 ? SLIP[i].odds : '' };
+                  opp: p.opp, home: p.home, odds: realOdds != null ? String(realOdds) : (i >= 0 ? SLIP[i].odds : '') };
     if (i >= 0) SLIP[i] = leg; else SLIP.push(leg);
     if (window.innerWidth >= 1150) SLIP_OPEN = true;     // on phones the slip covers the page: use the bar at the bottom
   }
