@@ -336,11 +336,24 @@ def load_odds():
 SGO_KEY_FILE = DATA / "sgo_key.txt"
 SGO_FILE = DATA / "sgo_odds.json"
 SGO_API = "https://api.sportsgameodds.com/v2"
-SGO_MARKETS = {                    # SportsGameOdds statID -> our market key
-    "passing_yards": "pass_yds", "passing_touchdowns": "pass_tds", "rushing_yards": "rush_yds",
-    "receiving_yards": "rec_yds", "receiving_receptions": "rec", "rushing+receiving_yards": "rush_rec_yds",
-    "touchdowns": "any_td",        # betTypeID 'yn' (yes/no), not 'ou' — handled separately below
+SGO_MARKETS = {                    # (SportsGameOdds statID, periodID) -> our market key
+    ("passing_yards", "game"): "pass_yds", ("passing_touchdowns", "game"): "pass_tds",
+    ("passing_attempts", "game"): "pass_att", ("passing_completions", "game"): "pass_comp",
+    ("passing_interceptions", "game"): "pass_int", ("passing_longestCompletion", "game"): "long_pass",
+    ("passing+rushing_yards", "game"): "pass_rush_yds", ("passing_yards", "1q"): "q1_pass_yds",
+    ("rushing_yards", "game"): "rush_yds", ("rushing_attempts", "game"): "rush_att",
+    ("rushing_longestRush", "game"): "long_rush", ("rushing_yards", "1q"): "q1_rush_yds",
+    ("receiving_yards", "game"): "rec_yds", ("receiving_receptions", "game"): "rec",
+    ("receiving_targets", "game"): "targets_m", ("receiving_longestReception", "game"): "long_rec",
+    ("receiving_yards", "1q"): "q1_rec_yds", ("rushing+receiving_yards", "game"): "rush_rec_yds",
+    ("touchdowns", "game"): "any_td",     # betTypeID 'yn' (yes/no), not 'ou' — handled separately below
+    ("touchdowns", "1q"): "q1_any_td",    # same yn/ou split, same gate
+    ("defense_soloTackles", "game"): "tackles", ("defense_assistedTackles", "game"): "assists",
+    ("defense_combinedTackles", "game"): "tackles_ast", ("defense_sacks", "game"): "sacks",
+    ("kicking_totalPoints", "game"): "kick_pts", ("fieldGoals_made", "game"): "fg_made_m",
+    ("extraPoints_kicksMade", "game"): "xp_made_m",
 }
+TD_MARKETS = {"any_td", "q1_any_td"}
 EXTRA_BOOKS = ["bovada", "pointsbet", "unibet", "williamhill"]   # SGO books not already in BOOK_ORDER
 for _b in EXTRA_BOOKS:
     if _b not in BOOK_ORDER:
@@ -418,17 +431,17 @@ def pull_sgo(key, games=None):
         away_abbr = (teams.get("away", {}).get("names") or {}).get("short")
         our_game_id = game_by_teams.get((home_abbr, away_abbr)) or ev["eventID"]
         for o in ev.get("odds", {}).values():
-            mkey = SGO_MARKETS.get(o.get("statID"))
+            mkey = SGO_MARKETS.get((o.get("statID"), o.get("periodID")))
             pid = o.get("playerID")
             if not mkey or not pid or pid not in players:
                 continue
-            if o.get("periodID") != "game":         # skip 1h/2h/1q/etc variants — we only have full-game props
-                continue
-            # "touchdowns" carries TWO different markets under one statID: yes/no (anytime TD, what
-            # our any_td is) and over/under 1.5+ (2+ TDs, a market we don't have). Without this gate
-            # they silently overwrite each other's odds.
+            # Many statIDs (not just "touchdowns") carry TWO parallel markets: a milestone yes/no bet
+            # ("will he reach X yards: yes/no") and the real over/under line+alt-ladder we actually want.
+            # For the two genuinely-binary markets (any_td, q1_any_td) it's the reverse — the yes/no
+            # IS the market (2+ TDs 'ou' is a different market we don't have). Without this gate, whichever
+            # one the API happens to list second silently overwrites the other's odds under the same key.
             bt = o.get("betTypeID")
-            if (mkey == "any_td") != (bt == "yn"):
+            if (mkey in TD_MARKETS) != (bt == "yn"):
                 continue
             side = o.get("sideID")
             slot = "over" if side in ("over", "yes") else "under" if side in ("under", "no") else None
@@ -473,6 +486,12 @@ def pull_sgo(key, games=None):
                         ae[slot] = {"book": book, "odds": aam}
 
     for entry in lines.values():
+        # Thinner markets (defense/kicking especially) often carry a top-level consensus price with no
+        # byBookmaker breakdown at all — real data, just not attributed to one book. Surface it rather
+        # than silently falling back to our own EST, but label it honestly as a blend, not a named book.
+        if not entry["books"] and (entry["over"] is not None or entry["under"] is not None):
+            entry["books"]["sgo"] = {"book": "sgo consensus", "line": entry["line"],
+                                      "over": entry["over"], "under": entry["under"]}
         entry["books"] = sorted(entry["books"].values(),
                                  key=lambda b: BOOK_ORDER.index(b["book"]) if b["book"] in BOOK_ORDER else 99)
         entry["alts"] = [{"t": t, **sides} for t, sides in sorted(entry["alts"].items())]
@@ -779,7 +798,7 @@ def build_board():
                         continue
                     vals = hl[mkey].tolist()
                     est = float(int(hl[mkey].tail(10).mean())) + 0.5
-                    if mkey == "any_td":
+                    if mkey in TD_MARKETS:
                         est = 0.5
                     if mkey in FIXED_LINES:
                         est = FIXED_LINES[mkey]
@@ -810,9 +829,9 @@ def build_board():
                         line = sg["line"] if sg["line"] is not None else est
                         row.update(line=line, src="book", over=sg["over"], under=sg["under"], books=sg["books"])
                         # EV only where the book's own line is close enough to the fair line that comparing
-                        # their odds head-to-head is a fair apples-to-apples read (any_td has no line at all,
-                        # so it's always comparable). A big line gap means they're pricing different things.
-                        comparable = mkey == "any_td" or (sg["fair_line"] is not None and abs(line - sg["fair_line"]) <= 1.0)
+                        # their odds head-to-head is a fair apples-to-apples read (a TD_MARKETS prop has no
+                        # numeric line at all, so it's always comparable). A big gap means different props.
+                        comparable = mkey in TD_MARKETS or (sg["fair_line"] is not None and abs(line - sg["fair_line"]) <= 1.0)
                         if comparable:
                             row["ev_over"] = ev_pct(sg["over"], sg["fair_over"])
                             row["ev_under"] = ev_pct(sg["under"], sg["fair_under"])
