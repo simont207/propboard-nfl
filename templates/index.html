@@ -309,6 +309,10 @@ window.onerror = function (msg, src, line) {
     <div class="results" id="gresults" hidden></div>
   </div>
   <div class="spacer"></div>
+  <div class="seg" id="oddsFmt" title="How odds are shown (Odds columns, alt lines, parlay slip)">
+    <button data-f="american" class="on">Am</button>
+    <button data-f="decimal">Dec</button>
+  </div>
   <button class="btn" id="btnSlip">Parlay <b id="slipN">0</b></button>
   <button class="btn" id="btnRefresh">↻ Refresh stats</button>
   <button class="btn primary" id="btnLines">Sportsbook lines</button>
@@ -428,6 +432,7 @@ const BOARDS = {};                // cache: sport -> its loaded board data, so s
 const lsKey = name => `${name}_${SPORT}`;   // per-sport localStorage keys (separate slips/custom lines)
 
 let board = null;
+let ODDS_FMT = localStorage.getItem('pb_oddsfmt') === 'decimal' ? 'decimal' : 'american';   // global, not per-sport
 const F = { markets: new Set(['rec_yds']), pos: '', team: '', game: '', q: '', side: 'over', win: 'l10',
             minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1 };
 let overrides = {};
@@ -517,7 +522,11 @@ const srcTagOf = p => overrides[p.id] != null ? ['est', 'CUSTOM'] : p.src === 'b
   : p.src === 'fixed' ? ['fixed', '5+ YDS'] : ['est', 'EST'];
 const lineText = (p, line, side) => p.src === 'fixed' && line === 4.5
   ? (side === 'over' ? '5+ yards' : '4 or fewer yards') : `${side === 'over' ? 'Over' : 'Under'} ${line}`;
-const fmtOdds = o => o == null ? '–' : (o > 0 ? '+' + o : o);
+const fmtOdds = o => {
+  if (o == null) return '–';
+  if (ODDS_FMT === 'decimal') { const d = toDec(o); return d ? d.toFixed(2) : '–'; }
+  return o > 0 ? '+' + o : o;
+};
 // EV%: how much better (or worse) a book's price is than SportsGameOdds' own fair (no-vig) line.
 // Only set server-side when the book's own line is close enough to the fair line to compare fairly.
 function evBadge(p, side) {
@@ -1291,7 +1300,7 @@ function renderSlip() {
       <div class="bignum">${haveEst ? (est * 100).toFixed(est < 0.1 ? 1 : 0) + '%' : '–'}</div>
       <div class="note" style="margin:2px 0 10px">Multiplies each leg's last-10 hit rate as if the legs were independent. Legs from the same game are usually linked, so treat it as a rough guide, not a price.</div>
       <div>Stake $ <input id="stake" type="number" min="1" step="1" value="${STAKE}"></div>
-      <div style="margin-top:8px">${allOdds ? `Parlay odds <b>${toAm(dec)}</b> · returns <b>$${(STAKE * dec).toFixed(2)}</b> <span class="muted">(profit $${(STAKE * (dec - 1)).toFixed(2)})</span>`
+      <div style="margin-top:8px">${allOdds ? `Parlay odds <b>${ODDS_FMT === 'decimal' ? dec.toFixed(2) : toAm(dec)}</b> · returns <b>$${(STAKE * dec).toFixed(2)}</b> <span class="muted">(profit $${(STAKE * (dec - 1)).toFixed(2)})</span>`
         : '<span class="muted">Type each leg\'s odds from your sportsbook to see the payout.</span>'}</div>
       <button class="btn primary slip-keep" id="slipKeep">Keep adding legs</button></div>` : ''}`;
   document.querySelectorAll('#slip .x').forEach(b => b.onclick = () => { SLIP.splice(+b.dataset.i, 1); saveSlip(); renderSlip(); refreshChips(); });
@@ -1400,6 +1409,18 @@ function goHome() {
 }
 $('#logoHome').onclick = e => { e.preventDefault(); goHome(); };
 document.querySelectorAll('#sportSwitch button').forEach(b => b.onclick = () => switchSport(b.dataset.s));
+document.querySelectorAll('#oddsFmt button').forEach(b => b.classList.toggle('on', b.dataset.f === ODDS_FMT));
+document.querySelectorAll('#oddsFmt button').forEach(b => b.onclick = () => {
+  ODDS_FMT = b.dataset.f;
+  try { localStorage.setItem('pb_oddsfmt', ODDS_FMT); } catch (e) {}
+  document.querySelectorAll('#oddsFmt button').forEach(x => x.classList.toggle('on', x.dataset.f === ODDS_FMT));
+  if (!board) return;
+  const pm = location.hash.match(/^#\/p\/(.+)$/), gm = location.hash.match(/^#\/g\/(.+)$/);
+  const p = pm && board.props.find(x => x.id === decodeURIComponent(pm[1]));
+  const g = gm && board.games.find(x => x.id === decodeURIComponent(gm[1]));
+  if (p) renderPlayer(p); else if (g) renderGame(g); else render();
+  renderSlip();
+});
 
 window.addEventListener('hashchange', route);
 init();
