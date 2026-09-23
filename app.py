@@ -571,6 +571,23 @@ def defense_ranks(df):
     return ranks, dvp, recent
 
 
+def usage_shares(cur, latest, games):
+    """Recent touch share (carries+targets, last 6 games) among a team's RBs/WRs/TEs — matchup grade alone
+    can't tell a workhorse from the backup sharing his own team's grade, so show who actually gets the ball."""
+    teams_in_play = {ESPN_TO_NFLVERSE.get(t, t) for g in games for t in (g["home"], g["away"])}
+    recent_touches = cur.sort_values("week").groupby("player_id").touches.apply(lambda s: s.tail(6).mean())
+    pool = latest[latest.position.isin(["RB", "WR", "TE"]) & latest.team.isin(teams_in_play)]
+    out = {}
+    for (team, pos), grp in pool.groupby(["team", "position"]):
+        vals = [(p.player_display_name, round(float(recent_touches.get(pid, 0)), 1))
+                for pid, p in grp.iterrows() if recent_touches.get(pid, 0) > 0]
+        if len(vals) < 2:
+            continue
+        vals.sort(key=lambda x: -x[1])
+        out[f"{team}|{pos}"] = vals
+    return out
+
+
 def game_entry(sched, r, mkey):
     """[season, week, opp, value, date, was_home, fav_margin, total] for one past game."""
     day, home_team, spread, total = sched.get(r.game_id, (None, None, None, None))
@@ -742,6 +759,7 @@ def build_board():
 
     cur = df[df.season == SEASON]
     latest = cur.sort_values("week").groupby("player_id").tail(1).set_index("player_id")
+    usage = usage_shares(cur, latest, games)
 
     rows = []
     for g in games:
@@ -805,7 +823,7 @@ def build_board():
                     rows.append(row)
 
     return {
-        "season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
+        "season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent, "usage": usage,
         "has_key": bool(load_config().get("odds_key")),
         "odds_pulled": odds["pulled"], "odds_remaining": odds["remaining"],
         "has_sgo_key": bool(load_sgo_key()), "sgo_pulled": sgo["pulled"],

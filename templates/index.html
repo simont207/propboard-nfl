@@ -70,6 +70,13 @@
   .tag.Questionable { background: #3d3212; color: var(--amber); }
   .tag.book { background: #123524; color: var(--green); }
   .tag.est { background: #2a2410; color: var(--amber); }
+  .wlrow { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
+  .wlname { width: 150px; flex-shrink: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wlname.on { font-weight: 700; color: var(--green); }
+  .wltrack { flex: 1; height: 16px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
+  .wlfill { height: 100%; background: var(--blue); border-radius: 4px; }
+  .wlfill.on { background: var(--green); }
+  .wlval { width: 34px; flex-shrink: 0; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .lineinput { width: 72px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
     padding: 4px 6px; text-align: right; font-variant-numeric: tabular-nums; }
   .lineinput:focus { outline: none; border-color: var(--green); }
@@ -920,6 +927,19 @@ function renderPlayer(p) {
       return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
         <b>Alt lines</b> <span class="muted" style="font-size:12px">— shown as Over, cleared in ${clearedText} games. Click one to add it (swaps your current pick for this prop).</span>
         <div class="alts" style="margin-top:8px">${chips.map(c => `<button class="alt ${inSlip(p, c.t, 'over') ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(p.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div></div>`;
+    })()}
+    ${(() => {
+      const usage = board.usage && board.usage[`${p.team}|${p.pos}`];
+      if (!usage || usage.length < 2) return '';
+      const max = Math.max(...usage.map(u => u[1]));
+      return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
+        <b>Workload split</b> <span class="muted" style="font-size:12px">— avg touches (carries+targets) per game, last 6 games, among ${esc(p.team)}'s ${posName}.</span>
+        <div style="margin-top:10px">${usage.map(([name, val]) => {
+          const mine = name === p.player;
+          return `<div class="wlrow"><div class="wlname ${mine ? 'on' : ''}">${esc(name)}</div>
+            <div class="wltrack"><div class="wlfill ${mine ? 'on' : ''}" style="width:${max ? Math.round(val / max * 100) : 0}%"></div></div>
+            <div class="wlval">${fmtNum(val)}</div></div>`;
+        }).join('')}</div></div>`;
     })()}
 
     <div class="chartcard">
