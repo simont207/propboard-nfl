@@ -276,6 +276,25 @@
     .alt { padding: 8px 13px; }
   }
 
+  /* filters panel (same slide-out mechanics as the parlay slip) */
+  #filtersPanel { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; max-width: 100%; background: var(--panel);
+    border-left: 1px solid var(--line); z-index: 15; transform: translateX(100%); transition: transform .2s;
+    display: flex; flex-direction: column; }
+  body.filters-open #filtersPanel { transform: none; }
+  @media (min-width: 1150px) { body.filters-open main { padding-right: 362px; } }
+  @media (max-width: 700px) { #filtersPanel { width: 100%; } }
+  .filters-h { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px;
+    border-bottom: 1px solid var(--line); }
+  .filters-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+  .filter-group { margin-bottom: 20px; }
+  .filter-group > label:first-child { display: block; font-size: 12px; color: var(--muted); margin-bottom: 7px;
+    text-transform: uppercase; letter-spacing: .02em; }
+  .filter-range { display: flex; align-items: center; gap: 8px; }
+  .filter-range input, .filter-group select { width: 100%; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 8px; }
+  .filters-f { border-top: 1px solid var(--line); padding: 14px 16px; display: flex; gap: 10px; }
+  .filters-f .btn { flex: 1; text-align: center; }
+
   .ava { display: inline-flex; align-items: center; justify-content: center; background: var(--panel2); color: var(--muted);
     font-weight: 700; flex: none; letter-spacing: .02em; }
   .tbadge { display: inline-flex; align-items: center; justify-content: center; background: var(--panel2); color: var(--muted);
@@ -340,6 +359,7 @@ window.onerror = function (msg, src, line) {
     <label>Min hit % <input type="number" id="minhit" value="0" min="0" max="100" step="5" style="width:70px"></label>
     <label><input type="checkbox" id="hideout" checked> Hide players ruled Out</label>
     <label id="tierOnlyWrap" hidden><input type="checkbox" id="tierOnly"> Tiered plays only</label>
+    <button class="btn" id="btnFilters">Filters <b id="filtersCount">0</b></button>
     <button class="chip" id="clearGame" hidden>✕ Game filter</button>
     <button class="chip" id="openParlay" hidden>🎟️ Alt lines &amp; parlay for this game →</button>
   </div>
@@ -367,6 +387,7 @@ window.onerror = function (msg, src, line) {
 
 <aside id="slip"></aside>
 <button id="slipBar" hidden></button>
+<aside id="filtersPanel"></aside>
 <div class="veil" id="veil"></div>
 
 <div class="modal" id="modal">
@@ -432,7 +453,8 @@ const lsKey = name => `${name}_${SPORT}`;   // per-sport localStorage keys (sepa
 let board = null;
 let ODDS_FMT = localStorage.getItem('pb_oddsfmt') === 'decimal' ? 'decimal' : 'american';   // global, not per-sport
 const F = { markets: new Set(['rec_yds']), pos: '', team: '', game: '', q: '', side: 'over', win: 'l10',
-            minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1 };
+            minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1,
+            oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '' };
 let overrides = {};
 const EXPANDED = new Set();   // prop ids whose alt-line row is open on the board
 try { overrides = JSON.parse(localStorage.getItem(lsKey('pb_lines')) || '{}'); } catch (e) {}
@@ -454,7 +476,8 @@ function switchSport(sport) {
   $('#sportName').textContent = SPORT_TITLE[sport];
   document.querySelectorAll('#sportSwitch button').forEach(b => b.classList.toggle('on', b.dataset.s === sport));
   Object.assign(F, { markets: new Set([SPORT_DEFAULT_MARKET[sport]]), pos: '', team: '', game: '', q: '',
-                      side: 'over', win: 'l10', minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1 });
+                      side: 'over', win: 'l10', minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1,
+                      oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '' });
   overrides = {}; try { overrides = JSON.parse(localStorage.getItem(lsKey('pb_lines')) || '{}'); } catch (e) {}
   EXPANDED.clear(); SLIP.length = 0; SLIP_OPEN = false;
   try { SLIP.push(...JSON.parse(localStorage.getItem(lsKey('pb_slip')) || '[]')); } catch (e) {}
@@ -475,7 +498,7 @@ function setBoard(b) {
   const teams = [...new Set(b.props.map(p => p.team))].sort();
   $('#team').innerHTML = '<option value="">All teams</option>' + teams.map(t => `<option>${t}</option>`).join('');
   $('#team').value = F.team;
-  renderTop(); render(); route(); renderSlip();
+  renderTop(); render(); route(); renderSlip(); renderFilters();
   $('#gsearch').disabled = false;
 }
 
@@ -613,6 +636,16 @@ function filtered() {
     !(F.tierOnly && activeQ1() && !(p.tier && ['ELITE', 'STRONG', 'LEAN'].includes(p.tier.tier))));
   rows = rows.map(p => ({ p, d: derive(p) }));
   if (F.minhit > 0) rows = rows.filter(x => x.d.pct != null && x.d.pct >= F.minhit);
+  if (F.lineMin != null) rows = rows.filter(x => x.d.line >= F.lineMin);
+  if (F.lineMax != null) rows = rows.filter(x => x.d.line <= F.lineMax);
+  if (F.oddsMin != null || F.oddsMax != null) rows = rows.filter(({ p }) => {
+    const o = F.side === 'over' ? p.over : p.under;
+    return o != null && (F.oddsMin == null || o >= F.oddsMin) && (F.oddsMax == null || o <= F.oddsMax);
+  });
+  if (F.gradeMin) rows = rows.filter(({ p }) => {
+    const gr = gradeOf(p.opp_rank, F.side, poolN(p.pos, p.market));
+    return gr && GRADES.indexOf(gr.L) <= GRADES.indexOf(F.gradeMin);
+  });
   const key = F.sort === 'hit' ? F.win : F.sort;
   const val = ({p, d}) => {
     if (['l5','l10','season','h2h'].includes(key)) return d.r[key].pct ?? -1;
@@ -743,6 +776,7 @@ function setSide(v) {
   F.side = v;
   document.querySelectorAll('#side button').forEach(x => x.classList.toggle('on', x.dataset.v === v));
   render(); route();
+  if (FILTERS_OPEN) renderFilters();
 }
 function setLine(p, raw) {
   const v = parseFloat(raw);
@@ -1220,6 +1254,7 @@ function renderGame(g) {
 }
 
 let SLIP = [], SLIP_OPEN = false, STAKE = 10;
+let FILTERS_OPEN = false;
 try { SLIP = JSON.parse(localStorage.getItem(lsKey('pb_slip')) || '[]'); STAKE = +localStorage.getItem(lsKey('pb_stake')) || 10; } catch (e) {}
 const saveSlip = () => { try { localStorage.setItem(lsKey('pb_slip'), JSON.stringify(SLIP)); localStorage.setItem(lsKey('pb_stake'), STAKE); } catch (e) {} };
 function inSlip(p, t, side = 'over') {
@@ -1323,6 +1358,52 @@ function renderSlip() {
 }
 $('#btnSlip').onclick = () => { SLIP_OPEN = !SLIP_OPEN; renderSlip(); };
 $('#slipBar').onclick = () => { SLIP_OPEN = true; renderSlip(); };
+
+function filtersActiveCount() {
+  let n = 0;
+  if (F.oddsMin != null || F.oddsMax != null) n++;
+  if (F.lineMin != null || F.lineMax != null) n++;
+  if (F.gradeMin) n++;
+  return n;
+}
+function renderFilters() {
+  document.body.classList.toggle('filters-open', FILTERS_OPEN);
+  $('#filtersCount').textContent = filtersActiveCount();
+  $('#filtersPanel').innerHTML = `
+    <div class="filters-h"><b>Filters</b><button class="btn" id="filtersClose">✕</button></div>
+    <div class="filters-body">
+      <div class="filter-group"><label>Odds range (${F.side === 'over' ? 'Over' : 'Under'})</label>
+        <div class="filter-range">
+          <input type="number" id="fOddsMin" placeholder="Min" value="${F.oddsMin ?? ''}">
+          <span class="muted">to</span>
+          <input type="number" id="fOddsMax" placeholder="Max" value="${F.oddsMax ?? ''}">
+        </div></div>
+      <div class="filter-group"><label>Line range</label>
+        <div class="filter-range">
+          <input type="number" step="0.5" id="fLineMin" placeholder="Min" value="${F.lineMin ?? ''}">
+          <span class="muted">to</span>
+          <input type="number" step="0.5" id="fLineMax" placeholder="Max" value="${F.lineMax ?? ''}">
+        </div></div>
+      <div class="filter-group"><label>Matchup Grade</label>
+        <select id="fGrade">
+          <option value="">All Grades</option>
+          ${GRADES.map(g => `<option value="${g}" ${F.gradeMin === g ? 'selected' : ''}>${g} or better</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="filters-f"><button class="btn" id="filtersClear">Clear Filters</button><button class="btn primary" id="filtersDone">Done</button></div>`;
+  $('#filtersClose').onclick = () => { FILTERS_OPEN = false; renderFilters(); };
+  $('#filtersDone').onclick = () => { FILTERS_OPEN = false; renderFilters(); };
+  $('#filtersClear').onclick = () => {
+    Object.assign(F, { oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '' });
+    renderFilters(); render();
+  };
+  $('#fOddsMin').onchange = e => { F.oddsMin = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
+  $('#fOddsMax').onchange = e => { F.oddsMax = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
+  $('#fLineMin').onchange = e => { F.lineMin = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
+  $('#fLineMax').onchange = e => { F.lineMax = e.target.value === '' ? null : +e.target.value; renderFilters(); render(); };
+  $('#fGrade').onchange = e => { F.gradeMin = e.target.value; renderFilters(); render(); };
+}
+$('#btnFilters').onclick = () => { FILTERS_OPEN = !FILTERS_OPEN; renderFilters(); };
 
 // ---- global search ---------------------------------------------------
 const norm = t => (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
