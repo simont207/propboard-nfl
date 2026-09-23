@@ -318,7 +318,8 @@ window.onerror = function (msg, src, line) {
   <div class="filters">
     <input type="text" id="q" placeholder="Search player…">
     <select id="pos"><option value="">All positions</option>
-      <option>QB</option><option>RB</option><option>WR</option><option>TE</option></select>
+      <option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option>
+      <option>DL</option><option>LB</option><option>DB</option></select>
     <select id="team"><option value="">All teams</option></select>
     <div class="seg" id="side"><button data-v="over" class="on">Over</button><button data-v="under">Under</button></div>
     <label>Sort by
@@ -403,8 +404,16 @@ const SPORT_TITLE = { nfl: 'NFL', ncaaf: 'NCAAF' };
 const SPORT_DEFAULT_MARKET = { nfl: 'rec_yds', ncaaf: 'pass_yds' };
 const BOARD_URLS = { nfl: PUBLIC ? 'board.json' : '/api/board', ncaaf: PUBLIC ? 'board_ncaaf.json' : '/api/board-ncaaf' };
 const SPORT_MARKETS = {
-  nfl: [['all','All props'],['rec_yds','Rec Yds'],['rec','Receptions'],['rush_yds','Rush Yds'],
-    ['rush_rec_yds','Rush+Rec Yds'],['pass_yds','Pass Yds'],['pass_tds','Pass TDs'],['any_td','Anytime TD'],['q1_rec','Q1 Rec 5+'],['q1_rush','Q1 Rush 5+']],
+  nfl: [['all','All props'],
+    ['pass_yds','Pass Yds'],['pass_tds','Pass TDs'],['pass_att','Pass Attempts'],['pass_comp','Pass Completions'],
+    ['pass_int','Interceptions'],['long_pass','Longest Pass'],
+    ['rush_yds','Rush Yds'],['rush_att','Rush Attempts'],['long_rush','Longest Rush'],
+    ['rec_yds','Rec Yds'],['rec','Receptions'],['targets_m','Targets'],['long_rec','Longest Reception'],
+    ['rush_rec_yds','Rush+Rec Yds'],['pass_rush_yds','Pass+Rush Yds'],['any_td','Anytime TD'],
+    ['q1_rec','Q1 Rec 5+'],['q1_rush','Q1 Rush 5+'],
+    ['q1_pass_yds','1Q Pass Yds'],['q1_rush_yds','1Q Rush Yds'],['q1_rec_yds','1Q Rec Yds'],['q1_any_td','1Q TD'],
+    ['tackles','Tackles'],['assists','Assists'],['tackles_ast','Tackles+Assists'],['sacks','Sacks'],
+    ['kick_pts','Kicking Points'],['fg_made_m','Field Goals'],['xp_made_m','Extra Points']],
   ncaaf: [['all','All props'],['pass_yds','Pass Yds'],['pass_tds','Pass TDs'],['rush_yds','Rush Yds'],['rec_yds','Rec Yds'],['rec','Receptions']],
 };
 let MARKETS = SPORT_MARKETS[SPORT];
@@ -535,7 +544,7 @@ const BASE_COLS = [
   ['l5', 'L5'], ['l10', 'L10'], ['season', 'Season'], ['h2h', 'vs Opp'],
   ['avg', 'Avg L10'], ['opp_rank', 'Matchup rank*'], ['trend', 'Last 10'],
 ];
-const activeQ1 = () => [...F.markets].some(k => k.startsWith('q1_'));
+const activeQ1 = () => [...F.markets].some(k => k === 'q1_rec' || k === 'q1_rush');   // just the two sharpness-tiered markets, not the newer plain-line q1_* ones
 const cols = () => { const c = BASE_COLS.slice(); if (activeQ1()) c.splice(3, 0, ['tier', 'Tier']); return c; };
 const TIER_ICON = { ELITE: '💎', STRONG: '🔥', LEAN: '⭐', OUT: '⛔' };
 const tierBadge = t => t ? `<span class="tier t${t}">${TIER_ICON[t]} ${t}</span>` : '<span class="tier tNone">below LEAN</span>';
@@ -717,7 +726,7 @@ function gradeOf(rank, side, n = 32) {
   return { L, cls: gcls(L) };
 }
 const rankOf = (p, team) => board.dvp[`${p.pos}|${p.market}`]?.teams[team]?.[0];
-const POS_ORDER = { QB: 0, RB: 1, WR: 2, TE: 3 };
+const POS_ORDER = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4, DL: 5, LB: 6, DB: 7 };
 const fmtDate = d => { if (!d) return ''; const [, m, day] = d.split('-'); return `${+m}/${+day}`; };
 const fmtTime = iso => new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 
@@ -1028,7 +1037,14 @@ if ($('#btnPullSgo')) $('#btnPullSgo').onclick = async () => {
 const GV = { game: null, market: 'all', team: '', win: 5, miss: 0 };
 const ALT = { rec_yds: { step: 10, min: 30 }, rush_yds: { step: 10, min: 30 }, rush_rec_yds: { step: 10, min: 40 },
   pass_yds: { step: 25, min: 175 }, rec: { step: 1, min: 2 }, pass_tds: { list: [1, 2, 3] }, any_td: { list: [1, 2] },
-  q1_rec: { list: [5, 10, 15, 20, 25, 30] }, q1_rush: { list: [5, 10, 15, 20, 25] } };
+  q1_rec: { list: [5, 10, 15, 20, 25, 30] }, q1_rush: { list: [5, 10, 15, 20, 25] },
+  pass_att: { step: 5, min: 20 }, pass_comp: { step: 5, min: 12 }, pass_int: { list: [1, 2] },
+  pass_rush_yds: { step: 25, min: 175 }, rush_att: { step: 2, min: 6 }, targets_m: { step: 1, min: 3 },
+  long_pass: { step: 5, min: 15 }, long_rush: { step: 5, min: 5 }, long_rec: { step: 5, min: 10 },
+  q1_pass_yds: { step: 10, min: 30 }, q1_rush_yds: { step: 5, min: 10 }, q1_rec_yds: { step: 5, min: 10 },
+  q1_any_td: { list: [1] }, tackles: { step: 1, min: 2 }, assists: { step: 1, min: 1 },
+  tackles_ast: { step: 1, min: 3 }, sacks: { list: [1, 2, 3] }, kick_pts: { step: 1, min: 4 },
+  fg_made_m: { list: [1, 2, 3] }, xp_made_m: { list: [1, 2, 3] } };
 function ladder(market, vals) {
   const a = ALT[market], mx = Math.max(...vals, 0), out = [];
   if (a.list) return a.list.filter(t => t <= mx);

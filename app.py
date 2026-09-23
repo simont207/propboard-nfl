@@ -46,6 +46,27 @@ MARKETS = {
     # First-quarter 5+ yard props: the line is fixed at 4.5, so "Over" means 5 or more.
     "q1_rec": ("Q1 Rec 5+", ["WR", "TE", "RB"], ("targets", 3.5)),
     "q1_rush": ("Q1 Rush 5+", ["RB"], ("carries", 6)),
+    # --- added 2026-09-22 ---
+    "pass_att": ("Pass Attempts", ["QB"], ("attempts", 15)),
+    "pass_comp": ("Pass Completions", ["QB"], ("attempts", 15)),
+    "pass_int": ("Interceptions", ["QB"], ("attempts", 15)),
+    "pass_rush_yds": ("Pass+Rush Yds", ["QB"], ("attempts", 15)),
+    "rush_att": ("Rush Attempts", ["QB", "RB", "WR"], ("carries", 6)),
+    "targets_m": ("Targets", ["WR", "TE", "RB"], ("targets", 3.5)),
+    "long_pass": ("Longest Pass", ["QB"], ("attempts", 15)),
+    "long_rush": ("Longest Rush", ["QB", "RB", "WR"], ("carries", 6)),
+    "long_rec": ("Longest Reception", ["WR", "TE", "RB"], ("targets", 3.5)),
+    "q1_pass_yds": ("1Q Pass Yds", ["QB"], ("attempts", 15)),
+    "q1_rush_yds": ("1Q Rush Yds", ["QB", "RB", "WR"], ("carries", 6)),
+    "q1_rec_yds": ("1Q Rec Yds", ["WR", "TE", "RB"], ("targets", 3.5)),
+    "q1_any_td": ("1Q TD", ["RB", "WR", "TE"], ("touches", 6)),
+    "tackles": ("Tackles", ["LB", "DB", "DL"], ("tackle_vol", 2.5)),
+    "assists": ("Assists", ["LB", "DB", "DL"], ("tackle_vol", 2.5)),
+    "tackles_ast": ("Tackles+Assists", ["LB", "DB", "DL"], ("tackle_vol", 2.5)),
+    "sacks": ("Sacks", ["LB", "DB", "DL"], ("tackle_vol", 2.5)),
+    "kick_pts": ("Kicking Points", ["K"], ("kick_vol", 1.5)),
+    "fg_made_m": ("Field Goals", ["K"], ("kick_vol", 1.5)),
+    "xp_made_m": ("Extra Points", ["K"], ("kick_vol", 1.5)),
 }
 FIXED_LINES = {"q1_rec": 4.5, "q1_rush": 4.5}
 ODDS_MARKETS = {
@@ -91,7 +112,9 @@ def download(url, dest, max_age_hours):
 
 
 def _build_q1_tables():
-    """Reduce big play-by-play files to small first-quarter tables (cached, big file deleted)."""
+    """Reduce big play-by-play files to small per-game player tables (cached, big file deleted):
+    first-quarter yards/TDs (for the Q1 markets) and longest-play (no quarter restriction — a game's
+    single best pass/rush/catch, wherever in the game it happened)."""
     for yr, age in ((SEASON - 1, 24 * 30), (SEASON, 3)):
         small, small_def = DATA / f"q1_{yr}.parquet", DATA / f"q1def_{yr}.parquet"
         fresh = all(f.exists() and time.time() - f.stat().st_mtime < age * 3600 for f in (small, small_def))
@@ -101,17 +124,36 @@ def _build_q1_tables():
         if not download(f"{NFLVERSE}/pbp/play_by_play_{yr}.parquet", big, 0):
             continue
         p = pd.read_parquet(big, columns=[
-            "game_id", "qtr", "play_type", "epa", "defteam", "receiver_player_id", "receiving_yards",
-            "rusher_player_id", "rushing_yards"])
-        p = p[p.qtr == 1]
-        rec = (p.dropna(subset=["receiver_player_id"])
+            "game_id", "qtr", "play_type", "epa", "defteam",
+            "receiver_player_id", "receiving_yards", "rusher_player_id", "rushing_yards",
+            "passer_player_id", "passing_yards", "pass_touchdown", "rush_touchdown", "td_player_id"])
+
+        # longest single play this game, any quarter (a sack/no-gain doesn't count as anyone's "longest")
+        long_rec = (p[p.receiving_yards > 0].groupby(["game_id", "receiver_player_id"]).receiving_yards.max()
+                    .rename("long_rec").rename_axis(["game_id", "player_id"]))
+        long_rush = (p[p.rushing_yards > 0].groupby(["game_id", "rusher_player_id"]).rushing_yards.max()
+                     .rename("long_rush").rename_axis(["game_id", "player_id"]))
+        long_pass = (p[p.passing_yards > 0].groupby(["game_id", "passer_player_id"]).passing_yards.max()
+                     .rename("long_pass").rename_axis(["game_id", "player_id"]))
+
+        q1p = p[p.qtr == 1]
+        rec = (q1p.dropna(subset=["receiver_player_id"])
                .groupby(["game_id", "receiver_player_id"]).receiving_yards.sum()
                .rename("q1_rec").rename_axis(["game_id", "player_id"]))
-        rush = (p.dropna(subset=["rusher_player_id"])
+        rush = (q1p.dropna(subset=["rusher_player_id"])
                 .groupby(["game_id", "rusher_player_id"]).rushing_yards.sum()
                 .rename("q1_rush").rename_axis(["game_id", "player_id"]))
-        pd.concat([rec, rush], axis=1).reset_index().to_parquet(small)
-        d = p[p.epa.notna() & p.defteam.notna() & p.play_type.isin(["pass", "run"])]
+        pas = (q1p.dropna(subset=["passer_player_id"])
+               .groupby(["game_id", "passer_player_id"]).passing_yards.sum()
+               .rename("q1_pass").rename_axis(["game_id", "player_id"]))
+        # scorer only (receiver on a pass TD, rusher on a run TD) — excludes the passer, return/pick-6 TDs,
+        # matching how the full-game any_td market is already defined (rushing_tds + receiving_tds)
+        td_rows = q1p[(q1p.pass_touchdown == 1) | (q1p.rush_touchdown == 1)]
+        q1_td = (td_rows.dropna(subset=["td_player_id"]).groupby(["game_id", "td_player_id"]).size()
+                 .rename("q1_any_td").rename_axis(["game_id", "player_id"]))
+
+        pd.concat([rec, rush, pas, q1_td, long_rec, long_rush, long_pass], axis=1).reset_index().to_parquet(small)
+        d = q1p[q1p.epa.notna() & q1p.defteam.notna() & q1p.play_type.isin(["pass", "run"])]
         (d.groupby(["defteam", "play_type"]).epa.agg(["sum", "count"]).reset_index()
          .to_parquet(small_def))
         big.unlink()
@@ -124,10 +166,12 @@ def _read_all(prefix):
 
 
 def load_q1():
-    """First-quarter receiving/rushing yards per player per game, from play-by-play."""
+    """First-quarter yards/TDs and game-long longest-play, per player per game, from play-by-play."""
     _build_q1_tables()
     q1 = _read_all("q1")
-    return q1 if q1 is not None else pd.DataFrame(columns=["game_id", "player_id", "q1_rec", "q1_rush"])
+    cols = ["game_id", "player_id", "q1_rec", "q1_rush", "q1_pass", "q1_any_td",
+            "long_rec", "long_rush", "long_pass"]
+    return q1 if q1 is not None else pd.DataFrame(columns=cols)
 
 
 def load_q1_def():
@@ -146,22 +190,52 @@ def load_stats():
         if download(f"{NFLVERSE}/stats_player/stats_player_week_{yr}.parquet", f, age):
             frames.append(pd.read_parquet(f))
     df = pd.concat(frames, ignore_index=True)
-    df = df[df.position.isin(["QB", "RB", "FB", "WR", "TE"])].copy()
-    df["position"] = df.position.replace({"FB": "RB"})
+    # Collapse related positions so the position filter stays usable (a raw 16-way defensive split isn't):
+    # DL = DE/DT/NT, LB = ILB/MLB/OLB, DB = CB/S/SAF/FS. K and the offensive skill positions stay as-is.
+    POS_MAP = {"FB": "RB", "DE": "DL", "DT": "DL", "NT": "DL",
+               "ILB": "LB", "MLB": "LB", "OLB": "LB", "CB": "DB", "S": "DB", "SAF": "DB", "FS": "DB"}
+    df = df[df.position.isin(["QB", "RB", "FB", "WR", "TE", "K", *POS_MAP])].copy()
+    df["position"] = df.position.replace(POS_MAP)
     df["pass_yds"] = df.passing_yards
     df["pass_tds"] = df.passing_tds
+    df["pass_att"] = df.attempts
+    df["pass_comp"] = df.completions
+    df["pass_int"] = df.passing_interceptions
+    df["pass_rush_yds"] = df.passing_yards + df.rushing_yards
     df["rush_yds"] = df.rushing_yards
+    df["rush_att"] = df.carries
     df["rec_yds"] = df.receiving_yards
     df["rec"] = df.receptions
+    df["targets_m"] = df.targets
     df["rush_rec_yds"] = df.rushing_yards + df.receiving_yards
     df["any_td"] = df.rushing_tds + df.receiving_tds
     df["touches"] = df.carries + df.targets
+    # defense/kicking: not in the weekly file's own per-market columns, so build the volume proxy here too
+    df["tackles"] = df.def_tackles_solo.fillna(0)
+    df["assists"] = df.def_tackle_assists.fillna(0)
+    df["tackles_ast"] = df.def_tackles_solo.fillna(0) + df.def_tackle_assists.fillna(0)
+    df["sacks"] = df.def_sacks.fillna(0)
+    df["tackle_vol"] = df.def_tackles_solo.fillna(0) + df.def_tackle_assists.fillna(0)
+    df["kick_pts"] = df.fg_made.fillna(0) * 3 + df.pat_made.fillna(0)
+    df["fg_made_m"] = df.fg_made.fillna(0)
+    df["xp_made_m"] = df.pat_made.fillna(0)
+    df["kick_vol"] = df.fg_att.fillna(0) + df.pat_att.fillna(0)
+
     q1 = load_q1()
     df = df.merge(q1, on=["game_id", "player_id"], how="left")
     known = df.game_id.isin(set(q1.game_id))          # games we have play-by-play for
     df["q1_rec_tgt"] = df.q1_rec.notna() & known      # had at least one Q1 target / carry
     df["q1_rush_att"] = df.q1_rush.notna() & known
-    df.loc[known, ["q1_rec", "q1_rush"]] = df.loc[known, ["q1_rec", "q1_rush"]].fillna(0)
+    fill0 = ["q1_rec", "q1_rush", "q1_pass", "q1_any_td"]
+    df.loc[known, fill0] = df.loc[known, fill0].fillna(0)
+    # q1_rush/q1_rec double as the source for BOTH the fixed "5+" markets (q1_rush, q1_rec) and the
+    # normal-line yardage markets (q1_rush_yds, q1_rec_yds) — same numbers, two different display treatments
+    df["q1_rush_yds"] = df["q1_rush"]
+    df["q1_rec_yds"] = df["q1_rec"]
+    df["q1_pass_yds"] = df["q1_pass"]
+    # long_pass/long_rush/long_rec are left as real NaN (not 0) on a game with no qualifying play — the
+    # board loop already drops those games from a player's history rather than counting them as a "0 yard"
+    # longest play, which would understate how often he actually clears a given longest-play line
     return df.sort_values(["season", "week"]).reset_index(drop=True)
 
 
@@ -474,7 +548,9 @@ def defense_ranks(df):
     ranks, dvp, recent = {}, {}, {}
     for mkey, (_, positions, _) in MARKETS.items():
         for pos in positions:
-            sub = df[df.position == pos].sort_values(mkey, ascending=False)
+            sub = df[df.position == pos].copy()
+            sub[mkey] = sub[mkey].fillna(0)          # per-game NaN (no qualifying play) -> 0 for this defense-allowed rollup only
+            sub = sub.sort_values(mkey, ascending=False)
             per_game = (sub.groupby(["opponent_team", "season", "week"])
                         .agg(total=(mkey, "sum"), top=(mkey, "max"),
                              name=("player_display_name", "first"), off=("team", "first"))
@@ -695,7 +771,7 @@ def build_board():
                     row = {
                         "id": f"{pid}|{mkey}|{g['id']}", "pid": pid, "player": p.player_display_name,
                         "pos": pos, "team": t, "opp": o, "home": home, "game": g["id"],
-                        "img": p.headshot_url, "market": mkey, "label": label,
+                        "img": None if pd.isna(p.headshot_url) else p.headshot_url, "market": mkey, "label": label,
                         "est": est, "line": est, "src": "fixed" if mkey in FIXED_LINES else "est", "over": None, "under": None,
                         "books": [], "inj": inj_status,
                         "opp_rank": ranks.get((o, pos, mkey)),
