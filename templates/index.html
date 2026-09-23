@@ -825,6 +825,35 @@ function barChart(gs, line, side) {
     <text x="${L - 8}" y="${y0 + 4}" fill="#8b9a91" font-size="12" text-anchor="end">0</text></svg></div>`;
 }
 
+// Template-only summary sentences built strictly from numbers already computed for this player/prop —
+// no free-text generation, so it can never state anything not already shown elsewhere on the page.
+function buildSummary(p, o) {
+  const { avg, avgLbl, line, side, rk, gr, rn, t, pctDiff, R, cur, posName } = o;
+  const last = esc(p.player.split(' ').slice(-1)[0]);
+  const parts = [];
+  if (avg != null) {
+    const windowText = avgLbl === 'L10 AVG' ? 'his last 10 games' : `the ${board.season} season`;
+    parts.push(`${last} is averaging ${fmtNum(Math.round(avg * 10) / 10)} ${esc(p.label.toLowerCase())} over ${windowText}.`);
+  }
+  if (rk != null && t) {
+    const dir = pctDiff >= 0 ? 'more' : 'less';
+    const article = gr.L[0] === 'A' ? 'an' : 'a';
+    parts.push(`${esc(p.opp)} ranks ${ord(rk)} of ${rn} against ${esc(posName)} (${Math.abs(pctDiff).toFixed(0)}% ${dir} than league average) — ${article} ${gr.L} matchup for the ${side === 'over' ? 'Over' : 'Under'}.`);
+  }
+  if (R[cur[0]].n) {
+    const windowNote = /^l\d+$/.test(cur[0]) ? '' : ` (${esc(cur[1])})`;
+    parts.push(`He's cleared ${line} in ${R[cur[0]].hits} of his last ${R[cur[0]].n} games${windowNote} (${Math.round(R[cur[0]].pct)}%).`);
+  }
+  const usage = board.usage && board.usage[`${p.team}|${p.pos}`];
+  if (usage && usage.length >= 2) {
+    const idx = usage.findIndex(u => u[0] === p.player);
+    if (idx === 0) parts.push(`He leads ${esc(p.team)}'s ${esc(posName)} in touches, averaging ${usage[0][1]} over his last 6 games (next closest: ${esc(usage[1][0])} at ${usage[1][1]}).`);
+    else if (idx > 0) parts.push(`He's ${ord(idx + 1)} on ${esc(p.team)} in touches among ${esc(posName)} (${usage[idx][1]}/game), behind ${esc(usage[0][0])} (${usage[0][1]}).`);
+  }
+  if (p.inj) parts.push(`Listed as ${esc(p.inj)} on the injury report for this game.`);
+  return parts.join(' ');
+}
+
 function renderPlayer(p) {
   const g = board.games.find(x => x.id === p.game);
   const line = lineFor(p), side = F.side, f = PV.f;
@@ -916,6 +945,12 @@ function renderPlayer(p) {
       ${ti && ti.tier && ti.tier !== 'OUT' ? `<div class="gbadge"><div class="L">${TIER_ICON[ti.tier]}</div><div class="t">${ti.tier} · ${ti.score.toFixed(2)}<br>Sharpness tier</div></div>` : ''}
       ${gr ? `<div class="gbadge"><div class="L ${gr.cls === 'gA' ? 'g' : gr.cls === 'gD' ? 'r' : ''}">${gr.L}</div><div class="t">Matchup grade<br>for ${side === 'over' ? 'Over' : 'Under'}</div></div>` : ''}
     </div>
+    ${(() => {
+      const summary = buildSummary(p, { avg, avgLbl, line, side, rk, gr, rn, t, pctDiff, R, cur, posName });
+      return summary ? `<div class="chartcard" style="margin-top:14px;padding:14px 16px">
+        <b>Summary</b>
+        <p class="muted" style="margin:8px 0 0;line-height:1.5;color:var(--text)">${summary}</p></div>` : '';
+    })()}
     ${(() => {
       if (p.real_alts && p.real_alts.length) return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
         <b>Alt lines</b> <span class="muted" style="font-size:12px">— real prices from sportsbooks. Click one to add it at that price.</span>
