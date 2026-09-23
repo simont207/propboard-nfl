@@ -654,6 +654,51 @@ def load_snap_share():
     return sn.groupby("pfr_player_id").offense_pct.mean().to_dict()
 
 
+def load_snap_avg():
+    """Recent average offensive snaps/game, keyed by gsis_id (bridged from pfr_id via the roster)."""
+    roster = load_roster()
+    if roster.empty:
+        return {}
+    pfr_to_gsis = dict(zip(roster.pfr_id, roster.gsis_id))
+    frames = []
+    for yr, age in ((SEASON - 1, 24 * 30), (SEASON, 3)):
+        f = DATA / f"snaps{yr}.parquet"
+        if download(f"{NFLVERSE}/snap_counts/snap_counts_{yr}.parquet", f, age):
+            frames.append(pd.read_parquet(f, columns=["pfr_player_id", "season", "week",
+                                                        "offense_snaps", "defense_snaps"]))
+    if not frames:
+        return {}
+    sn = pd.concat(frames)
+    # a player accumulates one side or the other, essentially never both -- sum is safe and avoids
+    # showing "0.0 snaps" for defensive players just because offense_snaps alone is 0 for them
+    sn["snaps"] = sn.offense_snaps.fillna(0) + sn.defense_snaps.fillna(0)
+    sn["sw"] = sn.season * 100 + sn.week
+    avg = sn.sort_values("sw").groupby("pfr_player_id").snaps.apply(lambda s: s.tail(4).mean())
+    return {pfr_to_gsis[pfr]: round(float(v), 1) for pfr, v in avg.items() if pfr in pfr_to_gsis}
+
+
+def roster_activity(inj, inj_week, cur, snap_avg):
+    """Questionable/Doubtful/Out players this week, grouped by team, with recent usage context —
+    matchup grade alone doesn't say whether a banged-up starter is even likely to play/keep his role."""
+    if not len(inj) or inj_week <= 0:
+        return {}
+    touch_avg = (cur.sort_values("week").groupby("player_id").touches
+                 .apply(lambda s: s.tail(4).mean()).to_dict())
+    img_by_pid = cur.sort_values("week").groupby("player_id").headshot_url.last().to_dict()
+    week_rows = inj[(inj.week == inj_week) & inj.report_status.isin(["Questionable", "Doubtful", "Out"])]
+    out = {}
+    for r in week_rows.itertuples():
+        touches = touch_avg.get(r.gsis_id)
+        snaps = snap_avg.get(r.gsis_id)
+        img = img_by_pid.get(r.gsis_id)
+        out.setdefault(r.team, []).append({
+            "pid": r.gsis_id, "name": r.full_name, "pos": r.position, "status": r.report_status,
+            "snaps": snaps, "touches": round(float(touches), 1) if touches is not None and touches > 0 else None,
+            "img": None if img is None or pd.isna(img) else img,
+        })
+    return out
+
+
 def load_starting_qbs():
     f = DATA / f"depth{SEASON}.parquet"
     if not download(f"{NFLVERSE}/depth_charts/depth_charts_{SEASON}.parquet", f, 3):
@@ -779,6 +824,7 @@ def build_board():
     cur = df[df.season == SEASON]
     latest = cur.sort_values("week").groupby("player_id").tail(1).set_index("player_id")
     usage = usage_shares(cur, latest, games)
+    roster_act = roster_activity(inj, inj_week, cur, load_snap_avg())
 
     rows = []
     for g in games:
@@ -843,6 +889,7 @@ def build_board():
 
     return {
         "season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent, "usage": usage,
+        "roster_activity": roster_act,
         "has_key": bool(load_config().get("odds_key")),
         "odds_pulled": odds["pulled"], "odds_remaining": odds["remaining"],
         "has_sgo_key": bool(load_sgo_key()), "sgo_pulled": sgo["pulled"],

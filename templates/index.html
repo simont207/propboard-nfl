@@ -74,6 +74,8 @@
   .wlfill { height: 100%; background: var(--blue); border-radius: 4px; }
   .wlfill.on { background: var(--green); }
   .wlval { width: 34px; flex-shrink: 0; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ralink { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .ralink:last-child { border-bottom: none; }
   .lineinput { width: 72px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
     padding: 4px 6px; text-align: right; font-variant-numeric: tabular-nums; }
   .lineinput:focus { outline: none; border-color: var(--green); }
@@ -974,6 +976,23 @@ function renderPlayer(p) {
           return `<div class="wlrow"><div class="wlname ${mine ? 'on' : ''}">${esc(name)}</div>
             <div class="wltrack"><div class="wlfill ${mine ? 'on' : ''}" style="width:${max ? Math.round(val / max * 100) : 0}%"></div></div>
             <div class="wlval">${fmtNum(val)}</div></div>`;
+        }).join('')}</div></div>`;
+    })()}
+    ${(() => {
+      const list = board.roster_activity && board.roster_activity[p.team];
+      if (!list || !list.length) return '';
+      return `<div class="chartcard" style="margin-top:14px;padding:14px 16px">
+        <b>Roster Activity</b> <span class="muted" style="font-size:12px">— ${esc(p.team)}'s Questionable/Doubtful/Out players this week.</span>
+        <div style="margin-top:8px">${list.map(x => {
+          const bits = [];
+          if (x.snaps != null) bits.push(`${fmtNum(x.snaps)} snaps`);
+          if (x.touches != null) bits.push(`${fmtNum(x.touches)} touches`);
+          const usageLine = bits.length ? bits.join(', ') + ' per game' : '';
+          return `<div class="ralink">${pimg(x.name, x.img, 34)}
+            <div style="flex:1;min-width:0">
+              <div><b>${esc(x.name)}</b> <span class="muted">${esc(x.pos)}</span><span class="tag ${esc(x.status)}">${esc(x.status)}</span></div>
+              ${usageLine ? `<div class="muted" style="font-size:12px">${usageLine}</div>` : ''}
+            </div></div>`;
         }).join('')}</div></div>`;
     })()}
 
