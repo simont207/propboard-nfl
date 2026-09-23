@@ -28,9 +28,6 @@
   .muted { color: var(--muted); }
   main { padding: 16px 20px 60px; max-width: 1600px; margin: 0 auto; }
 
-  .banner { background: #2a2410; border: 1px solid #5c4d12; color: #f3dd8a; padding: 9px 14px;
-    border-radius: 8px; margin-bottom: 14px; font-size: 13px; }
-  .banner a { color: var(--amber); cursor: pointer; text-decoration: underline; }
 
   .games { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px; }
   .game { flex: 0 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
@@ -320,7 +317,6 @@ window.onerror = function (msg, src, line) {
 
 <main>
 <div id="boardView">
-  <div id="banner"></div>
   <div class="games" id="games"></div>
   <div class="note" style="margin:-4px 0 10px">Click a game to see every player's alt lines and build a parlay.</div>
 
@@ -707,11 +703,6 @@ function renderTop() {
   $('#sub').textContent = `${board.games.length} upcoming games · ${board.props.length} props` +
     (ages != null ? ` · book lines pulled ${ages < 1 ? 'just now' : ages + 'h ago'}` : '') +
     (board.built ? ` · updated ${new Date(board.built * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : '');
-  const hasBook = board.props.some(p => p.src === 'book');
-  $('#banner').innerHTML = hasBook ? '' :
-    `<div class="banner"><b>Lines are estimates.</b> Each line is set from the player's recent average so you can see hit rates —
-     it is <u>not</u> a sportsbook line. Type any line into the box to test it${PUBLIC ? '.' : ', or <a id="lnkLines">add real sportsbook lines</a>.'}</div>`;
-  if ($('#lnkLines')) $('#lnkLines').onclick = openModal;
   const wk = {};
   $('#games').innerHTML = board.games.map(g => {
     const t = new Date(g.date).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
