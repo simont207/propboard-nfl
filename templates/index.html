@@ -1330,6 +1330,13 @@ function refreshBoardAddButtons() {
 }
 const toDec = o => { o = parseFloat(o); return isNaN(o) || Math.abs(o) < 100 ? null : o > 0 ? 1 + o / 100 : 1 + 100 / Math.abs(o); };
 const toAm = d => d >= 2 ? '+' + Math.round((d - 1) * 100) : String(Math.round(-100 / (d - 1)));
+// leg.odds is always stored as American internally -- this only affects what's shown/typed in the slip's odds box
+const legOddsDisplay = raw => {
+  if (raw === '' || raw == null) return '';
+  if (ODDS_FMT !== 'decimal') return raw;
+  const d = toDec(raw);
+  return d ? d.toFixed(2) : raw;
+};
 function legStats(l) {
   const p = board && board.props.find(x => x.pid === l.pid && x.market === l.market && x.game === l.game);
   if (!p) return null;
@@ -1355,7 +1362,8 @@ function renderSlip() {
     return `<div class="leg"><div><b>${esc(l.name)}</b>
         <div class="muted" style="font-size:12px">${esc(legText(l))} · ${l.home ? 'vs' : '@'} ${esc(l.opp)}</div>
         <div class="lstat">${st ? `Cleared in L5 ${st.l5.hits}/${st.l5.n} · L10 ${st.l10.hits}/${st.l10.n}` : 'stats unavailable'}</div></div>
-      <input class="legodds" data-i="${i}" placeholder="odds" value="${esc(l.odds)}" title="Optional American odds, like -110 or +250">
+      <input class="legodds" data-i="${i}" placeholder="${ODDS_FMT === 'decimal' ? 'decimal' : 'odds'}" value="${esc(legOddsDisplay(l.odds))}"
+        title="${ODDS_FMT === 'decimal' ? 'Optional decimal odds, like 1.91 or 3.50' : 'Optional American odds, like -110 or +250'}">
       <button class="x" data-i="${i}" title="Remove">✕</button></div>`;
   }).join('');
   const bar = $('#slipBar');
@@ -1377,7 +1385,16 @@ function renderSlip() {
         : '<span class="muted">Type each leg\'s odds from your sportsbook to see the payout.</span>'}</div>
       <button class="btn primary slip-keep" id="slipKeep">Keep adding legs</button></div>` : ''}`;
   document.querySelectorAll('#slip .x').forEach(b => b.onclick = () => { SLIP.splice(+b.dataset.i, 1); saveSlip(); renderSlip(); refreshChips(); });
-  document.querySelectorAll('#slip .legodds').forEach(inp => inp.onchange = () => { SLIP[+inp.dataset.i].odds = inp.value.trim(); saveSlip(); renderSlip(); });
+  document.querySelectorAll('#slip .legodds').forEach(inp => inp.onchange = () => {
+    const raw = inp.value.trim();
+    let odds = raw;
+    if (raw && ODDS_FMT === 'decimal') {
+      const d = parseFloat(raw);
+      if (!isNaN(d) && d > 1) odds = toAm(d);   // convert what they typed back to American for storage
+    }
+    SLIP[+inp.dataset.i].odds = odds;
+    saveSlip(); renderSlip();
+  });
   if ($('#slipClear')) $('#slipClear').onclick = () => { SLIP = []; saveSlip(); renderSlip(); refreshChips(); };
   if ($('#stake')) $('#stake').onchange = e => { STAKE = Math.max(1, +e.target.value || 10); saveSlip(); renderSlip(); };
   $('#slipClose').onclick = () => { SLIP_OPEN = false; renderSlip(); };
