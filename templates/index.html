@@ -734,7 +734,11 @@ function render() {
   });
   document.querySelectorAll('#tbody .addbtn').forEach(el => el.onclick = e => {
     e.stopPropagation();
-    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, el.dataset.side);
+    const p = board.props.find(x => x.id === el.dataset.id);
+    const t = +el.dataset.t, addSide = el.dataset.side;
+    // real book odds are only valid for the book's own line -- a custom/overridden line has no matching price
+    const realOdds = (p.src === 'book' && t === p.line) ? (addSide === 'over' ? p.over : p.under) : null;
+    toggleLeg(p, t, addSide, realOdds);
   });
   document.querySelectorAll('#tbody .altbtn').forEach(el => el.onclick = e => { e.stopPropagation(); toggleAltRow(el.dataset.id); });
   document.querySelectorAll('#tbody .altrow .alt').forEach(el => el.onclick = e => {
@@ -1101,7 +1105,10 @@ function renderPlayer(p) {
   if ($('#chipClear')) $('#chipClear').onclick = () => { PV.f = {}; route(); };
   document.querySelectorAll('#pvSide2 button').forEach(b => b.onclick = () => setSide(b.dataset.v));
   if ($('#pvLines')) $('#pvLines').onclick = openModal;
-  if ($('#pvAdd')) $('#pvAdd').onclick = () => toggleLeg(p, line, side);
+  if ($('#pvAdd')) $('#pvAdd').onclick = () => {
+    const realOdds = (p.src === 'book' && line === p.line) ? (side === 'over' ? p.over : p.under) : null;
+    toggleLeg(p, line, side, realOdds);
+  };
   document.querySelectorAll('#pvMain .alt').forEach(el => el.onclick = () => {
     toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, 'over', el.dataset.odds ? +el.dataset.odds : null);
   });
