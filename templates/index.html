@@ -1292,6 +1292,7 @@ function renderGame(g) {
 
 let SLIP = [], SLIP_OPEN = false, STAKE = 10;
 let FILTERS_OPEN = false;
+let slipAutoCloseTimer = null;
 try { SLIP = JSON.parse(localStorage.getItem(lsKey('pb_slip')) || '[]'); STAKE = +localStorage.getItem(lsKey('pb_stake')) || 10; } catch (e) {}
 const saveSlip = () => { try { localStorage.setItem(lsKey('pb_slip'), JSON.stringify(SLIP)); localStorage.setItem(lsKey('pb_stake'), STAKE); } catch (e) {} };
 function inSlip(p, t, side = 'over') {
@@ -1310,7 +1311,13 @@ function toggleLeg(p, thr, side = 'over', realOdds = null) {
     const leg = { pid: p.pid, market: p.market, game: p.game, thr, side, name: p.player, mlabel: p.label, team: p.team,
                   opp: p.opp, home: p.home, odds: realOdds != null ? String(realOdds) : (i >= 0 ? SLIP[i].odds : '') };
     if (i >= 0) SLIP[i] = leg; else SLIP.push(leg);
-    if (window.innerWidth >= 1150) SLIP_OPEN = true;     // on phones the slip covers the page: use the bar at the bottom
+    if (window.innerWidth >= 1150) {                     // on phones the slip covers the page: use the bar at the bottom
+      SLIP_OPEN = true;
+      // auto-close 5s after the most recent add, so it doesn't just sit open until manually dismissed;
+      // adding another leg within that window resets the countdown instead of closing mid-pick
+      clearTimeout(slipAutoCloseTimer);
+      slipAutoCloseTimer = setTimeout(() => { SLIP_OPEN = false; renderSlip(); }, 5000);
+    }
   }
   const added = inSlip(p, thr, side);
   saveSlip(); renderSlip(); refreshChips(); refreshBoardAddButtons();
@@ -1404,13 +1411,13 @@ function renderSlip() {
     SLIP[+inp.dataset.i].odds = odds;
     saveSlip(); renderSlip();
   });
-  if ($('#slipClear')) $('#slipClear').onclick = () => { SLIP = []; saveSlip(); renderSlip(); refreshChips(); };
+  if ($('#slipClear')) $('#slipClear').onclick = () => { clearTimeout(slipAutoCloseTimer); SLIP = []; saveSlip(); renderSlip(); refreshChips(); };
   if ($('#stake')) $('#stake').onchange = e => { STAKE = Math.max(1, +e.target.value || 10); saveSlip(); renderSlip(); };
-  $('#slipClose').onclick = () => { SLIP_OPEN = false; renderSlip(); };
+  $('#slipClose').onclick = () => { clearTimeout(slipAutoCloseTimer); SLIP_OPEN = false; renderSlip(); };
   document.querySelectorAll('#slip .gopick').forEach(b => b.onclick = () => { SLIP_OPEN = false; renderSlip(); location.hash = '#/g/' + b.dataset.g; });
-  if ($('#slipKeep')) $('#slipKeep').onclick = () => { SLIP_OPEN = false; renderSlip(); };
+  if ($('#slipKeep')) $('#slipKeep').onclick = () => { clearTimeout(slipAutoCloseTimer); SLIP_OPEN = false; renderSlip(); };
 }
-$('#btnSlip').onclick = () => { SLIP_OPEN = !SLIP_OPEN; renderSlip(); };
+$('#btnSlip').onclick = () => { clearTimeout(slipAutoCloseTimer); SLIP_OPEN = !SLIP_OPEN; renderSlip(); };
 $('#slipBar').onclick = () => { SLIP_OPEN = true; renderSlip(); };
 
 function filtersActiveCount() {
