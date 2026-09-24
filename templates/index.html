@@ -1225,9 +1225,12 @@ function bestAltChips(p) {
 // recent games. Clicking one pre-fills the leg's odds, so the parlay payout works immediately.
 function realAltHtml(p) {
   const alts = p.real_alts.slice(0, 8);
+  // odds intentionally not shown on the chip itself (Simon asked to drop that) -- data-odds stays so
+  // clicking a chip still pre-fills the parlay leg's price correctly, and the book/price is still in
+  // the hover title for anyone who wants it without it being visible on the board by default
   return `<div class="alts">${alts.map(a => `<button class="alt real ${inSlip(p, a.t, 'over') ? 'on' : ''}"
       data-id="${esc(p.id)}" data-t="${a.t}" data-odds="${a.over_odds}" data-base=""
-      title="${a.over_book} · real price">${a.t}+<small>${fmtOdds(a.over_odds)}</small></button>`).join('')}</div>`;
+      title="${a.over_book} · ${fmtOdds(a.over_odds)}">${a.t}+</button>`).join('')}</div>`;
 }
 const legText = l => {
   const side = l.side || 'over';
