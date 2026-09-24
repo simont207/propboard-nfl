@@ -339,7 +339,7 @@ window.onerror = function (msg, src, line) {
 </script>
 <header>
   <div><a class="logo" id="logoHome" href="#/" title="Back to the home screen">Prop<b>Board</b> <span id="sportName">NFL</span></a><div class="muted small" id="sub">Loading…</div></div>
-  <div class="seg" id="sportSwitch"><button data-s="nfl" class="on">NFL</button><button data-s="ncaaf">NCAAF</button><button data-s="nba">NBA</button></div>
+  <div class="seg" id="sportSwitch"><button data-s="nfl" class="on">NFL</button><button data-s="ncaaf">NCAAF</button><button data-s="nba">NBA</button><button data-s="nhl">NHL</button></div>
   <div class="search">
     <input type="text" id="gsearch" placeholder="Search players, teams, props   ( / )" autocomplete="off" disabled>
     <div class="results" id="gresults" hidden></div>
@@ -449,10 +449,10 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 // generically (no NFL-specific field names), so the same table/player-page/game-page/parlay code
 // works for both — only the market list, header title and cache keys are sport-specific.
 let SPORT = 'nfl';
-const SPORT_TITLE = { nfl: 'NFL', ncaaf: 'NCAAF', nba: 'NBA' };
-const SPORT_DEFAULT_MARKET = { nfl: 'rec_yds', ncaaf: 'pass_yds', nba: 'pts' };
+const SPORT_TITLE = { nfl: 'NFL', ncaaf: 'NCAAF', nba: 'NBA', nhl: 'NHL' };
+const SPORT_DEFAULT_MARKET = { nfl: 'rec_yds', ncaaf: 'pass_yds', nba: 'pts', nhl: 'points' };
 const BOARD_URLS = { nfl: PUBLIC ? 'board.json' : '/api/board', ncaaf: PUBLIC ? 'board_ncaaf.json' : '/api/board-ncaaf',
-  nba: PUBLIC ? 'board_nba.json' : '/api/board-nba' };
+  nba: PUBLIC ? 'board_nba.json' : '/api/board-nba', nhl: PUBLIC ? 'board_nhl.json' : '/api/board-nhl' };
 const SPORT_MARKETS = {
   nfl: [['all','All props'],
     ['pass_yds','Pass Yds'],['pass_tds','Pass TDs'],['pass_att','Pass Attempts'],['pass_comp','Pass Completions'],
@@ -476,9 +476,13 @@ const SPORT_MARKETS = {
     ['ftm','Free Throws Made'],['oreb','Offensive Rebounds'],['dreb','Defensive Rebounds'],
     ['stl','Steals'],['blk','Blocks'],['to','Turnovers'],['stocks','Steals+Blocks'],
     ['dd','Double-Double'],['td','Triple-Double']],
+  nhl: [['all','All props'],
+    ['goals','Goals'],['assists','Assists'],['points','Points'],['sog','Shots on Goal'],
+    ['blocks','Blocked Shots'],['hits','Hits'],['pim','Penalty Minutes'],
+    ['saves','Saves'],['goals_against','Goals Against']],
 };
 let MARKETS = SPORT_MARKETS[SPORT];
-const SPORT_POSITIONS = { nfl: ['QB','RB','WR','TE','K','DL','LB','DB'], ncaaf: ['QB','RB','WR'], nba: ['G','F','C'] };
+const SPORT_POSITIONS = { nfl: ['QB','RB','WR','TE','K','DL','LB','DB'], ncaaf: ['QB','RB','WR'], nba: ['G','F','C'], nhl: ['F','D','G'] };
 const BOARDS = {};                // cache: sport -> its loaded board data, so switching back is instant
 const lsKey = name => `${name}_${SPORT}`;   // per-sport localStorage keys (separate slips/custom lines)
 
@@ -789,7 +793,7 @@ function renderTop() {
   $('#sub').textContent = `${board.games.length} upcoming games · ${board.props.length} props` +
     (ages != null ? ` · book lines pulled ${ages < 1 ? 'just now' : ages + 'h ago'}` : '') +
     (board.built ? ` · updated ${new Date(board.built * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : '');
-  $('#sportBanner').innerHTML = SPORT === 'nba'
+  $('#sportBanner').innerHTML = (SPORT === 'nba' || SPORT === 'nhl')
     ? `<div class="banner">Props are built from last season's rosters — some players may be shown on their old team
         until the real 2026-27 schedule starts. Everything updates automatically once this season's games begin.</div>`
     : '';
@@ -823,7 +827,7 @@ function gradeOf(rank, side, n = 32) {
   return { L, cls: gcls(L) };
 }
 const rankOf = (p, team) => board.dvp[`${p.pos}|${p.market}`]?.teams[team]?.[0];
-const POS_ORDER = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4, DL: 5, LB: 6, DB: 7, G: 8, F: 9, C: 10 };
+const POS_ORDER = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4, DL: 5, LB: 6, DB: 7, G: 8, F: 9, C: 10, D: 11 };
 const fmtDate = d => { if (!d) return ''; const [, m, day] = d.split('-'); return `${+m}/${+day}`; };
 const fmtTime = iso => new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 
@@ -901,7 +905,7 @@ function barChart(gs, line, side) {
     const hit = side === 'over' ? x[3] > line : x[3] < line;
     const cx = L + slot * i + slot / 2, top = y(x[3]), h = Math.max(2, y0 - top);
     const inside = h > 24;
-    return `<g><title>${x[0]} Wk ${x[1]} ${x[5] ? 'vs' : '@'} ${x[2]}: ${fmtNum(x[3])}</title>
+    return `<g><title>${x[0]} ${SPORT === 'nba' || SPORT === 'nhl' ? '' : `Wk ${x[1]} `}${x[5] ? 'vs' : '@'} ${x[2]}: ${fmtNum(x[3])}</title>
       <rect x="${cx - bw / 2}" y="${y0 - h}" width="${bw}" height="${h}" rx="3" fill="${hit ? '#2bd98a' : '#f0645f'}"/>
       <text x="${cx}" y="${inside ? y0 - 6 : y0 - h - 5}" fill="${inside ? '#04140b' : '#e8efeb'}" font-size="${many ? 11 : 13}" font-weight="700" text-anchor="middle">${fmtNum(x[3])}</text>
       <text x="${cx}" y="${y0 + 16}" fill="#8b9a91" font-size="${many ? 9 : 11}" text-anchor="middle">${fmtDate(x[4])}</text>
@@ -1111,7 +1115,7 @@ function renderPlayer(p) {
         ${mline(`${esc(p.player.split(' ').slice(-1)[0])} vs ${esc(p.opp)}`, h2h.length ? `${fmtNum(Math.round(avgOf(h2h.map(x => x[3])) * 10) / 10)} avg (${h2h.length} g)` : 'no games')}
         ${recent.length ? `<h4 style="margin:16px 0 4px">${esc(p.opp)}'s last ${recent.length} games vs ${posName}</h4><table class="recent">
           <tr class="muted"><th>Game</th><th>All ${posName}</th><th>Top performer</th></tr>
-          ${recent.slice().reverse().map(r => `<tr><td>Wk ${r[1]} vs ${esc(r[2])}</td><td>${fmtNum(r[3])}</td><td>${esc(r[4])} · ${fmtNum(r[5])}</td></tr>`).join('')}</table>` : ''}
+          ${recent.slice().reverse().map(r => `<tr><td>${SPORT === 'nba' || SPORT === 'nhl' ? '' : `Wk ${r[1]} `}vs ${esc(r[2])}</td><td>${fmtNum(r[3])}</td><td>${esc(r[4])} · ${fmtNum(r[5])}</td></tr>`).join('')}</table>` : ''}
         <div class="note">Rank = average allowed per game to ${posName}${SPORT === 'nfl' ? " over the defense's last 17 games (this + last season)." : ' this season.'}</div>
       </div></div>
 
@@ -1216,7 +1220,10 @@ const ALT = { rec_yds: { step: 10, min: 30 }, rush_yds: { step: 10, min: 30 }, r
   pra: { step: 3, min: 10 }, pr: { step: 2, min: 8 }, pa: { step: 2, min: 8 }, ra: { step: 1, min: 3 },
   stocks: { list: [1, 2, 3] },
   fg3a: { step: 1, min: 3 }, fgm: { step: 1, min: 4 }, fga: { step: 2, min: 6 }, ftm: { step: 1, min: 2 },
-  oreb: { list: [1, 2, 3, 4, 5] }, dreb: { step: 1, min: 3 }, dd: { list: [1] }, td: { list: [1] } };
+  oreb: { list: [1, 2, 3, 4, 5] }, dreb: { step: 1, min: 3 }, dd: { list: [1] }, td: { list: [1] },
+  goals: { list: [1, 2, 3] }, points: { step: 1, min: 1 }, sog: { step: 1, min: 2 },
+  blocks: { list: [1, 2, 3, 4] }, hits: { step: 1, min: 2 }, pim: { list: [2, 4, 6] },
+  saves: { step: 2, min: 20 }, goals_against: { list: [1, 2, 3, 4] } };
 function ladder(market, vals) {
   const a = ALT[market], mx = Math.max(...vals, 0), out = [];
   if (a.list) return a.list.filter(t => t <= mx);

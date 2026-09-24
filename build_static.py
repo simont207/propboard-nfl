@@ -82,3 +82,19 @@ try:
               f"{(out / 'board_nba.json').stat().st_size // 1024} KB of data.")
 except Exception as e:
     print(f"NBA build failed, leaving the rest of the site unaffected: {e}")
+
+# NHL: same soft-fail approach. Unlike NBA, NHL preseason has already started (checked live before
+# building this), but regular-season games are still weeks out, so this will likely publish little
+# or nothing yet until real regular-season games exist to build a schedule from.
+try:
+    import nhl
+    nhl_board = nhl.build_board()
+    if not nhl_board["games"] or len(nhl_board["props"]) < 20:
+        print(f"NHL: only {len(nhl_board['games'])} games / {len(nhl_board['props'])} props "
+              "— season likely hasn't started yet, not publishing this run.")
+    else:
+        (out / "board_nhl.json").write_text(json.dumps(nhl_board, allow_nan=False, separators=(",", ":")))
+        print(f"Built docs/board_nhl.json: {len(nhl_board['games'])} games, {len(nhl_board['props'])} props, "
+              f"{(out / 'board_nhl.json').stat().st_size // 1024} KB of data.")
+except Exception as e:
+    print(f"NHL build failed, leaving the rest of the site unaffected: {e}")

@@ -1,4 +1,4 @@
 flask
-pandas
+pandas>=2.2,<3
 pyarrow
 requests

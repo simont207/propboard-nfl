@@ -936,6 +936,21 @@ def get_nba_board(force=False):
         return _nba_cache["data"]
 
 
+_nhl_lock = threading.Lock()
+_nhl_cache = {"t": 0, "data": None}
+
+
+def get_nhl_board(force=False):
+    """Same reasoning as get_nba_board — a full prior season of box scores, cached for an hour since
+    a rebuild still re-checks every calendar day's schedule even with every game itself cached."""
+    import nhl
+    with _nhl_lock:
+        if force or not _nhl_cache["data"] or time.time() - _nhl_cache["t"] > 3600:
+            _nhl_cache["data"] = nhl.build_board()
+            _nhl_cache["t"] = time.time()
+        return _nhl_cache["data"]
+
+
 # ------------------------------------------------------------------ routes ---
 @app.route("/")
 def index():
@@ -955,6 +970,11 @@ def api_board_ncaaf():
 @app.route("/api/board-nba")
 def api_board_nba():
     return jsonify(get_nba_board())
+
+
+@app.route("/api/board-nhl")
+def api_board_nhl():
+    return jsonify(get_nhl_board())
 
 
 @app.route("/api/refresh", methods=["POST"])

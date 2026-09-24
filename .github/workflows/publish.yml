@@ -54,6 +54,12 @@ jobs:
           path: data/nba
           key: nba-boxscores-${{ github.run_id }}
           restore-keys: nba-boxscores-
+      # Same reasoning again for NHL's own full prior season (~1,300 games across 32 teams).
+      - uses: actions/cache@v4
+        with:
+          path: data/nhl
+          key: nhl-boxscores-${{ github.run_id }}
+          restore-keys: nhl-boxscores-
       # Every run starts from a clean checkout with no data/ at all (it's gitignored, never committed) —
       # without this, the 3-hourly runs that DON'T pull fresh SGO lines would have nothing to fall back
       # to and would rebuild EST-only, wiping out the once-a-day pull until the next 13:00 UTC run. This
