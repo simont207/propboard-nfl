@@ -238,12 +238,17 @@ def upcoming_games(days_ahead=14):
             home = next(c for c in comp["competitors"] if c["homeAway"] == "home")
             away = next(c for c in comp["competitors"] if c["homeAway"] == "away")
             odds = (comp.get("odds") or [{}])[0]
+            # NBA's scoreboard competitor objects have no "logos" field at all (unlike CFB's, where the
+            # same lookup works) -- confirmed by checking a real response before assuming a fix; ESPN's
+            # standard per-team logo CDN URL works directly off the abbreviation instead.
+            def logo_url(abbr):
+                return f"https://a.espncdn.com/i/teamlogos/nba/500/{abbr.lower()}.png" if abbr else None
             games.append({
                 "id": e["id"], "state": comp["status"]["type"]["state"], "date": e["date"],
                 "home": home["team"].get("abbreviation"), "away": away["team"].get("abbreviation"),
                 "home_name": home["team"].get("displayName"), "away_name": away["team"].get("displayName"),
-                "home_logo": (home["team"].get("logos") or [{}])[0].get("href"),
-                "away_logo": (away["team"].get("logos") or [{}])[0].get("href"),
+                "home_logo": logo_url(home["team"].get("abbreviation")),
+                "away_logo": logo_url(away["team"].get("abbreviation")),
                 "spread": odds.get("details"), "total": odds.get("overUnder"),
                 "home_spread": odds.get("spread"),
             })

@@ -67,6 +67,8 @@
   .tag.Questionable { background: #3d3212; color: var(--amber); }
   .tag.book { background: #123524; color: var(--green); }
   .tag.est { background: #2a2410; color: var(--amber); }
+  .banner { background: #2a2410; border: 1px solid #5c4d12; color: #f3dd8a; padding: 9px 14px;
+    border-radius: 8px; margin-bottom: 14px; font-size: 13px; }
   .wlrow { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
   .wlname { width: 150px; flex-shrink: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .wlname.on { font-weight: 700; color: var(--green); }
@@ -354,6 +356,7 @@ window.onerror = function (msg, src, line) {
 
 <main>
 <div id="boardView">
+  <div id="sportBanner"></div>
   <div class="games" id="games"></div>
   <div class="note" style="margin:-4px 0 10px">Click a game to see every player's alt lines and build a parlay.</div>
 
@@ -786,12 +789,16 @@ function renderTop() {
   $('#sub').textContent = `${board.games.length} upcoming games · ${board.props.length} props` +
     (ages != null ? ` · book lines pulled ${ages < 1 ? 'just now' : ages + 'h ago'}` : '') +
     (board.built ? ` · updated ${new Date(board.built * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : '');
+  $('#sportBanner').innerHTML = SPORT === 'nba'
+    ? `<div class="banner">Props are built from last season's rosters — some players may be shown on their old team
+        until the real 2026-27 schedule starts. Everything updates automatically once this season's games begin.</div>`
+    : '';
   const wk = {};
   $('#games').innerHTML = board.games.map(g => {
     const t = new Date(g.date).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
     return `<div class="game" data-id="${g.id}">
       <div class="teams">${timg(g.away, g.away_logo, 20, true)}${esc(g.away)} <span class="muted">@</span> ${timg(g.home, g.home_logo, 20, true)}${esc(g.home)}</div>
-      <div class="meta">Wk ${g.week} · ${t}${g.state === 'in' ? ' · LIVE' : ''}</div>
+      <div class="meta">${g.week ? `Wk ${g.week} · ` : ''}${t}${g.state === 'in' ? ' · LIVE' : ''}</div>
       <div class="meta">${esc(g.spread || '')}${g.total ? ' · O/U ' + g.total : ''}</div></div>`;
   }).join('');
   document.querySelectorAll('#games .game').forEach(el => el.onclick = () => openGameOnBoard(el.dataset.id, false));
@@ -1281,7 +1288,7 @@ function renderGame(g) {
     <a class="back" href="#/">← Back to board</a>
     <div class="hero" style="align-items:center">
       <div class="gteams">${timg(away, g.away_logo, 40, true)}${esc(away)} <span class="muted" style="font-size:16px">@</span> ${timg(home, g.home_logo, 40, true)}${esc(home)}</div>
-      <div class="muted">Wk ${g.week} · ${fmtTime(g.date)} · ${esc(g.spread || '')}${g.total ? ' · O/U ' + g.total : ''}</div>
+      <div class="muted">${g.week ? `Wk ${g.week} · ` : ''}${fmtTime(g.date)} · ${esc(g.spread || '')}${g.total ? ' · O/U ' + g.total : ''}</div>
       <div class="spacer"></div><button class="btn" id="gvBoard">Show this game on the board</button>
     </div>
     <div class="pills" style="margin-top:14px"><button class="pill ${GV.market === 'all' ? 'on' : ''}" data-m="all">All props</button>
