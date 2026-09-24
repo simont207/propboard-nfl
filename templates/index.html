@@ -460,7 +460,11 @@ const SPORT_MARKETS = {
     ['q1_pass_yds','1Q Pass Yds'],['q1_rush_yds','1Q Rush Yds'],['q1_rec_yds','1Q Rec Yds'],['q1_any_td','1Q TD'],
     ['tackles','Tackles'],['assists','Assists'],['tackles_ast','Tackles+Assists'],['sacks','Sacks'],
     ['kick_pts','Kicking Points'],['fg_made_m','Field Goals'],['xp_made_m','Extra Points']],
-  ncaaf: [['all','All props'],['pass_yds','Pass Yds'],['pass_tds','Pass TDs'],['rush_yds','Rush Yds'],['rec_yds','Rec Yds'],['rec','Receptions']],
+  ncaaf: [['all','All props'],
+    ['pass_yds','Pass Yds'],['pass_tds','Pass TDs'],['pass_att','Pass Attempts'],['pass_comp','Pass Completions'],['pass_int','Interceptions'],
+    ['rush_yds','Rush Yds'],['rush_att','Rush Attempts'],['long_rush','Longest Rush'],
+    ['rec_yds','Rec Yds'],['rec','Receptions'],['long_rec','Longest Reception'],
+    ['rush_rec_yds','Rush+Rec Yds'],['any_td','Anytime TD']],
 };
 let MARKETS = SPORT_MARKETS[SPORT];
 const BOARDS = {};                // cache: sport -> its loaded board data, so switching back is instant
@@ -492,6 +496,11 @@ function switchSport(sport) {
   if (sport === SPORT) return;
   SPORT = sport; MARKETS = SPORT_MARKETS[sport];
   $('#sportName').textContent = SPORT_TITLE[sport];
+  // the pill row is built once at page load from whatever MARKETS was then (NFL) -- without rebuilding
+  // it here, switching sport left every pill showing the OTHER sport's markets, so only the handful of
+  // market keys the two sports happen to share (by coincidence) ever produced results when clicked
+  $('#markets').innerHTML = MARKETS.map(([k, l]) => `<button class="pill" data-k="${k}">${l}</button>`).join('');
+  document.querySelectorAll('#markets .pill').forEach(el => el.onclick = () => toggleMarket(el.dataset.k));
   document.querySelectorAll('#sportSwitch button').forEach(b => b.classList.toggle('on', b.dataset.s === sport));
   Object.assign(F, { markets: new Set([SPORT_DEFAULT_MARKET[sport]]), pos: '', team: '', game: '', q: '',
                       side: 'over', win: 'l10', minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1,

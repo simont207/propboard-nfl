@@ -27,13 +27,24 @@ HTTP = {"User-Agent": "Mozilla/5.0 PropBoard"}
 FBS = 80             # ESPN's "group" id for FBS (skips FCS-only games)
 HIST_WEEKS = 6        # how many of the most recent completed weeks to build history from
 
-MARKETS = {
-    "pass_yds": ("Pass Yds", "QB", 12),
-    "pass_tds": ("Pass TDs", "QB", 12),
-    "rush_yds": ("Rush Yds", "RB", 6),
-    "rec_yds": ("Rec Yds", "WR", 3),
-    "rec": ("Receptions", "WR", 3),
+MARKETS = {                          # label, positions (tuple), min recent volume
+    "pass_yds": ("Pass Yds", ("QB",), 12),
+    "pass_tds": ("Pass TDs", ("QB",), 12),
+    "pass_att": ("Pass Attempts", ("QB",), 12),
+    "pass_comp": ("Pass Completions", ("QB",), 12),
+    "pass_int": ("Interceptions", ("QB",), 12),
+    "rush_yds": ("Rush Yds", ("RB",), 6),
+    "rush_att": ("Rush Attempts", ("RB",), 6),
+    "long_rush": ("Longest Rush", ("RB",), 6),
+    "rec_yds": ("Rec Yds", ("WR",), 3),
+    "rec": ("Receptions", ("WR",), 3),
+    "long_rec": ("Longest Reception", ("WR",), 3),
+    "rush_rec_yds": ("Rush+Rec Yds", ("RB", "WR"), 4),
+    "any_td": ("Anytime TD", ("RB", "WR"), 4),
 }
+VOL_COL = {"pass_yds": "pass_att", "pass_tds": "pass_att", "pass_att": "pass_att", "pass_comp": "pass_att",
+           "pass_int": "pass_att", "rush_yds": "carries", "rush_att": "carries", "long_rush": "carries",
+           "rec_yds": "rec", "rec": "rec", "long_rec": "rec", "rush_rec_yds": "touches", "any_td": "touches"}
 
 
 # ------------------------------------------------------------------- ESPN ---
@@ -106,26 +117,32 @@ def parse_boxscore(summary):
                     "game_id": game_id, "date": date, "week": week, "team": team, "opp": opp,
                     "athlete_id": aid, "name": a.get("displayName"),
                     "headshot": (a.get("headshot") or {}).get("href"),
-                    "pass_att": 0, "pass_yds": 0.0, "pass_tds": 0.0,
-                    "carries": 0, "rush_yds": 0.0, "rush_tds": 0.0,
-                    "rec": 0, "rec_yds": 0.0, "rec_tds": 0.0, "cats": set(),
+                    "pass_att": 0, "pass_comp": 0, "pass_yds": 0.0, "pass_tds": 0.0, "pass_int": 0.0,
+                    "carries": 0, "rush_yds": 0.0, "rush_tds": 0.0, "long_rush": 0.0,
+                    "rec": 0, "rec_yds": 0.0, "rec_tds": 0.0, "long_rec": 0.0, "cats": set(),
                 })
                 row["cats"].add(name)
                 s = ath.get("stats") or []
+                # labels confirmed against a real live box score before writing this (not assumed):
+                # passing = [C/ATT, YDS, AVG, TD, INT, QBR]; rushing/receiving = [CAR/REC, YDS, AVG, TD, LONG]
                 try:
                     if name == "passing" and len(s) >= 5:
                         att = s[0].split("/")
+                        row["pass_comp"] = int(att[0]) if len(att) == 2 else 0
                         row["pass_att"] = int(att[1]) if len(att) == 2 else 0
                         row["pass_yds"] = float(s[1] or 0)
                         row["pass_tds"] = float(s[3] or 0)
+                        row["pass_int"] = float(s[4] or 0)
                     elif name == "rushing" and len(s) >= 4:
                         row["carries"] = float(s[0] or 0)
                         row["rush_yds"] = float(s[1] or 0)
                         row["rush_tds"] = float(s[3] or 0)
+                        row["long_rush"] = float(s[4] or 0) if len(s) >= 5 else 0.0
                     elif name == "receiving" and len(s) >= 4:
                         row["rec"] = float(s[0] or 0)
                         row["rec_yds"] = float(s[1] or 0)
                         row["rec_tds"] = float(s[3] or 0)
+                        row["long_rec"] = float(s[4] or 0) if len(s) >= 5 else 0.0
                 except (ValueError, IndexError):
                     continue
     out = list(players.values())
@@ -195,17 +212,18 @@ def defense_ranks(df, fbs_teams):
     'average allowed' wildly, and there's no benefit to ranking a defense nobody has props on)."""
     ranks, dvp = {}, {}
     n = len(fbs_teams)
-    for mkey, (_, pos, _) in MARKETS.items():
-        sub = df[(df.pos == pos) & (df.opp.isin(fbs_teams))]
-        per_game = (sub.groupby(["opp", "game_id"])[mkey].sum().reset_index()
-                    .groupby("opp")[mkey].mean())
-        if per_game.empty:
-            continue
-        rk = per_game.rank(ascending=False, method="min").astype(int)
-        dvp[f"{pos}|{mkey}"] = {"league": round(float(per_game.mean()), 2), "n": n,
-                                 "teams": {t: [int(rk[t]), round(float(per_game[t]), 2)] for t in per_game.index}}
-        for team, r in rk.items():
-            ranks[(team, pos, mkey)] = int(r)
+    for mkey, (_, positions, _) in MARKETS.items():
+        for pos in positions:
+            sub = df[(df.pos == pos) & (df.opp.isin(fbs_teams))]
+            per_game = (sub.groupby(["opp", "game_id"])[mkey].sum().reset_index()
+                        .groupby("opp")[mkey].mean())
+            if per_game.empty:
+                continue
+            rk = per_game.rank(ascending=False, method="min").astype(int)
+            dvp[f"{pos}|{mkey}"] = {"league": round(float(per_game.mean()), 2), "n": n,
+                                     "teams": {t: [int(rk[t]), round(float(per_game[t]), 2)] for t in per_game.index}}
+            for team, r in rk.items():
+                ranks[(team, pos, mkey)] = int(r)
     return ranks, dvp
 
 
@@ -218,6 +236,9 @@ def build_board():
         print("NCAAF: no history rows, skipping.")
         return {"season": season, "games": games, "props": [], "dvp": {}, "recent": {}, "built": time.time()}
     df["rush_rec_yds"] = df.rush_yds + df.rec_yds
+    df["touches"] = df.carries + df.rec
+    df["any_td"] = df.rush_tds + df.rec_tds
+    df["rush_att"] = df.carries      # alias: rush_att is a market key, carries is the raw column name
     df = df.sort_values(["week", "date"]).reset_index(drop=True)
     # FBS team set: real FBS teams play (almost) every week, so a team seen in most of the fetched
     # weeks is FBS; a one-off FCS/cupcake opponent only ever shows up once or twice. A raw scoreboard
@@ -235,12 +256,10 @@ def build_board():
             for aid, p in cand.iterrows():
                 hist = df[(df.athlete_id == aid) & (df.team == team)]
                 pos = p.pos
-                for mkey, (label, mpos, vmin) in MARKETS.items():
-                    if pos != mpos:
+                for mkey, (label, positions, vmin) in MARKETS.items():
+                    if pos not in positions:
                         continue
-                    vol_col = {"pass_yds": "pass_att", "pass_tds": "pass_att", "rush_yds": "carries",
-                               "rec_yds": "rec", "rec": "rec"}[mkey]
-                    vol = hist[vol_col].tail(6).mean()
+                    vol = hist[VOL_COL[mkey]].tail(6).mean()
                     if not vol >= vmin:
                         continue
                     hl = hist.tail(20)
@@ -262,19 +281,20 @@ def build_board():
                     })
 
     recent = {}
-    for mkey, (_, pos, _) in MARKETS.items():
-        sub = df[df.pos == pos]
-        for def_team, grp in sub.groupby("opp"):
-            byweek = grp.groupby(["game_id", "week"]).agg(total=(mkey, "sum")).reset_index().sort_values("week")
-            entries = []
-            for _, row in byweek.tail(5).iterrows():
-                game_rows = grp[grp.game_id == row.game_id]
-                off_team = game_rows.team.iloc[0] if len(game_rows) else ""
-                top = game_rows.loc[game_rows[mkey].idxmax()] if len(game_rows) else None
-                entries.append([season, int(row.week), off_team, round(float(row.total), 1),
-                                 top["name"] if top is not None else "",
-                                 round(float(top[mkey]), 1) if top is not None else 0])
-            recent[f"{def_team}|{pos}|{mkey}"] = entries
+    for mkey, (_, positions, _) in MARKETS.items():
+        for pos in positions:
+            sub = df[df.pos == pos]
+            for def_team, grp in sub.groupby("opp"):
+                byweek = grp.groupby(["game_id", "week"]).agg(total=(mkey, "sum")).reset_index().sort_values("week")
+                entries = []
+                for _, row in byweek.tail(5).iterrows():
+                    game_rows = grp[grp.game_id == row.game_id]
+                    off_team = game_rows.team.iloc[0] if len(game_rows) else ""
+                    top = game_rows.loc[game_rows[mkey].idxmax()] if len(game_rows) else None
+                    entries.append([season, int(row.week), off_team, round(float(row.total), 1),
+                                     top["name"] if top is not None else "",
+                                     round(float(top[mkey]), 1) if top is not None else 0])
+                recent[f"{def_team}|{pos}|{mkey}"] = entries
 
     board = {"season": season, "games": games, "props": rows, "dvp": dvp, "recent": recent,
              "inj_week": 0, "built": time.time(), "has_key": False, "odds_pulled": None, "odds_remaining": None}
