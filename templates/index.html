@@ -337,7 +337,7 @@ window.onerror = function (msg, src, line) {
 </script>
 <header>
   <div><a class="logo" id="logoHome" href="#/" title="Back to the home screen">Prop<b>Board</b> <span id="sportName">NFL</span></a><div class="muted small" id="sub">Loading…</div></div>
-  <div class="seg" id="sportSwitch"><button data-s="nfl" class="on">NFL</button><button data-s="ncaaf">NCAAF</button></div>
+  <div class="seg" id="sportSwitch"><button data-s="nfl" class="on">NFL</button><button data-s="ncaaf">NCAAF</button><button data-s="nba">NBA</button></div>
   <div class="search">
     <input type="text" id="gsearch" placeholder="Search players, teams, props   ( / )" autocomplete="off" disabled>
     <div class="results" id="gresults" hidden></div>
@@ -446,9 +446,10 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 // generically (no NFL-specific field names), so the same table/player-page/game-page/parlay code
 // works for both — only the market list, header title and cache keys are sport-specific.
 let SPORT = 'nfl';
-const SPORT_TITLE = { nfl: 'NFL', ncaaf: 'NCAAF' };
-const SPORT_DEFAULT_MARKET = { nfl: 'rec_yds', ncaaf: 'pass_yds' };
-const BOARD_URLS = { nfl: PUBLIC ? 'board.json' : '/api/board', ncaaf: PUBLIC ? 'board_ncaaf.json' : '/api/board-ncaaf' };
+const SPORT_TITLE = { nfl: 'NFL', ncaaf: 'NCAAF', nba: 'NBA' };
+const SPORT_DEFAULT_MARKET = { nfl: 'rec_yds', ncaaf: 'pass_yds', nba: 'pts' };
+const BOARD_URLS = { nfl: PUBLIC ? 'board.json' : '/api/board', ncaaf: PUBLIC ? 'board_ncaaf.json' : '/api/board-ncaaf',
+  nba: PUBLIC ? 'board_nba.json' : '/api/board-nba' };
 const SPORT_MARKETS = {
   nfl: [['all','All props'],
     ['pass_yds','Pass Yds'],['pass_tds','Pass TDs'],['pass_att','Pass Attempts'],['pass_comp','Pass Completions'],
@@ -465,8 +466,16 @@ const SPORT_MARKETS = {
     ['rush_yds','Rush Yds'],['rush_att','Rush Attempts'],['long_rush','Longest Rush'],
     ['rec_yds','Rec Yds'],['rec','Receptions'],['long_rec','Longest Reception'],
     ['rush_rec_yds','Rush+Rec Yds'],['any_td','Anytime TD']],
+  nba: [['all','All props'],
+    ['pts','Points'],['reb','Rebounds'],['ast','Assists'],
+    ['pra','Pts+Reb+Ast'],['pr','Pts+Reb'],['pa','Pts+Ast'],['ra','Reb+Ast'],
+    ['fg3m','3-Pointers Made'],['fg3a','3-Point Attempts'],['fgm','Field Goals Made'],['fga','Field Goal Attempts'],
+    ['ftm','Free Throws Made'],['oreb','Offensive Rebounds'],['dreb','Defensive Rebounds'],
+    ['stl','Steals'],['blk','Blocks'],['to','Turnovers'],['stocks','Steals+Blocks'],
+    ['dd','Double-Double'],['td','Triple-Double']],
 };
 let MARKETS = SPORT_MARKETS[SPORT];
+const SPORT_POSITIONS = { nfl: ['QB','RB','WR','TE','K','DL','LB','DB'], ncaaf: ['QB','RB','WR'], nba: ['G','F','C'] };
 const BOARDS = {};                // cache: sport -> its loaded board data, so switching back is instant
 const lsKey = name => `${name}_${SPORT}`;   // per-sport localStorage keys (separate slips/custom lines)
 
@@ -501,6 +510,11 @@ function switchSport(sport) {
   // market keys the two sports happen to share (by coincidence) ever produced results when clicked
   $('#markets').innerHTML = MARKETS.map(([k, l]) => `<button class="pill" data-k="${k}">${l}</button>`).join('');
   document.querySelectorAll('#markets .pill').forEach(el => el.onclick = () => toggleMarket(el.dataset.k));
+  // same bug class as the pills above: the position dropdown was hardcoded to NFL's list at page
+  // load and never rebuilt on sport switch -- fixed proactively here instead of waiting to find it
+  // broken for NBA the way the pills were for NCAAF
+  $('#pos').innerHTML = '<option value="">All positions</option>' +
+    SPORT_POSITIONS[sport].map(p => `<option>${p}</option>`).join('');
   document.querySelectorAll('#sportSwitch button').forEach(b => b.classList.toggle('on', b.dataset.s === sport));
   Object.assign(F, { markets: new Set([SPORT_DEFAULT_MARKET[sport]]), pos: '', team: '', game: '', q: '',
                       side: 'over', win: 'l10', minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1,
@@ -735,7 +749,7 @@ function render() {
       ${altHtml}</td></tr>`;
   }).join('') : `<tr><td colspan="${cols().length}" class="empty">No props match these filters.</td></tr>`;
   $('#foot').textContent = `${rows.length} props` + (rows.length > CAP ? ` (showing top ${CAP} — narrow the filters to see the rest)` : '') +
-    ` · *Opp rank = how many ${F.side === 'over' ? 'yards/stats' : 'stats'} the defense allows to that position${SPORT === 'ncaaf' ? ' this season' : ' over its last 17 games'} (1st = allows the most).` +
+    ` · *Opp rank = how many ${F.side === 'over' ? 'yards/stats' : 'stats'} the defense allows to that position${SPORT === 'nfl' ? ' over its last 17 games' : ' this season'} (1st = allows the most).` +
     (activeQ1() ? ' · Tiers (💎 ELITE ≥ .80, 🔥 STRONG ≥ .72, ⭐ LEAN ≥ .63) score each team\'s top WR / RB; click a player for the breakdown.' : '');
   document.querySelectorAll('tr.row').forEach(tr => tr.onclick = e => {
     if (e.target.classList.contains('lineinput')) return;
@@ -802,7 +816,7 @@ function gradeOf(rank, side, n = 32) {
   return { L, cls: gcls(L) };
 }
 const rankOf = (p, team) => board.dvp[`${p.pos}|${p.market}`]?.teams[team]?.[0];
-const POS_ORDER = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4, DL: 5, LB: 6, DB: 7 };
+const POS_ORDER = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4, DL: 5, LB: 6, DB: 7, G: 8, F: 9, C: 10 };
 const fmtDate = d => { if (!d) return ''; const [, m, day] = d.split('-'); return `${+m}/${+day}`; };
 const fmtTime = iso => new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 
@@ -1091,7 +1105,7 @@ function renderPlayer(p) {
         ${recent.length ? `<h4 style="margin:16px 0 4px">${esc(p.opp)}'s last ${recent.length} games vs ${posName}</h4><table class="recent">
           <tr class="muted"><th>Game</th><th>All ${posName}</th><th>Top performer</th></tr>
           ${recent.slice().reverse().map(r => `<tr><td>Wk ${r[1]} vs ${esc(r[2])}</td><td>${fmtNum(r[3])}</td><td>${esc(r[4])} · ${fmtNum(r[5])}</td></tr>`).join('')}</table>` : ''}
-        <div class="note">Rank = average allowed per game to ${posName}${SPORT === 'ncaaf' ? ' this season.' : " over the defense's last 17 games (this + last season)."}</div>
+        <div class="note">Rank = average allowed per game to ${posName}${SPORT === 'nfl' ? " over the defense's last 17 games (this + last season)." : ' this season.'}</div>
       </div></div>
 
       <div class="card"><h3>Odds</h3><div class="body">
@@ -1189,7 +1203,13 @@ const ALT = { rec_yds: { step: 10, min: 30 }, rush_yds: { step: 10, min: 30 }, r
   q1_pass_yds: { step: 10, min: 30 }, q1_rush_yds: { step: 5, min: 10 }, q1_rec_yds: { step: 5, min: 10 },
   q1_any_td: { list: [1] }, tackles: { step: 1, min: 2 }, assists: { step: 1, min: 1 },
   tackles_ast: { step: 1, min: 3 }, sacks: { list: [1, 2, 3] }, kick_pts: { step: 1, min: 4 },
-  fg_made_m: { list: [1, 2, 3] }, xp_made_m: { list: [1, 2, 3] } };
+  fg_made_m: { list: [1, 2, 3] }, xp_made_m: { list: [1, 2, 3] },
+  pts: { step: 2, min: 6 }, reb: { step: 1, min: 2 }, ast: { step: 1, min: 1 },
+  fg3m: { list: [1, 2, 3, 4, 5] }, stl: { list: [1, 2, 3] }, blk: { list: [1, 2, 3] }, to: { list: [1, 2, 3] },
+  pra: { step: 3, min: 10 }, pr: { step: 2, min: 8 }, pa: { step: 2, min: 8 }, ra: { step: 1, min: 3 },
+  stocks: { list: [1, 2, 3] },
+  fg3a: { step: 1, min: 3 }, fgm: { step: 1, min: 4 }, fga: { step: 2, min: 6 }, ftm: { step: 1, min: 2 },
+  oreb: { list: [1, 2, 3, 4, 5] }, dreb: { step: 1, min: 3 }, dd: { list: [1] }, td: { list: [1] } };
 function ladder(market, vals) {
   const a = ALT[market], mx = Math.max(...vals, 0), out = [];
   if (a.list) return a.list.filter(t => t <= mx);
@@ -1470,7 +1490,7 @@ function renderFilters() {
         </select>`)}
       ${frow('positions', 'Positions', F.pos || 'All', `
         <select id="fPos"><option value="">All</option>
-          ${['QB','RB','WR','TE','K','DL','LB','DB'].map(p => `<option value="${p}" ${F.pos === p ? 'selected' : ''}>${p}</option>`).join('')}
+          ${SPORT_POSITIONS[SPORT].map(p => `<option value="${p}" ${F.pos === p ? 'selected' : ''}>${p}</option>`).join('')}
         </select>`)}
       ${frow('odds', 'Odds', oddsBadge, `
         <div class="filter-range">

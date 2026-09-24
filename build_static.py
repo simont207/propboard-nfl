@@ -66,3 +66,19 @@ try:
               f"{(out / 'board_ncaaf.json').stat().st_size // 1024} KB of data.")
 except Exception as e:
     print(f"NCAAF build failed, leaving the site's NFL side unaffected: {e}")
+
+# NBA: same soft-fail approach as NCAAF. The 2026-27 season hasn't started (checked live before
+# building this at all — one preseason game on the schedule as of writing), so this will likely
+# publish nothing yet, which is correct: no upcoming games means nothing real to show props for.
+try:
+    import nba
+    nba_board = nba.build_board()
+    if not nba_board["games"] or len(nba_board["props"]) < 20:
+        print(f"NBA: only {len(nba_board['games'])} games / {len(nba_board['props'])} props "
+              "— season likely hasn't started yet, not publishing this run.")
+    else:
+        (out / "board_nba.json").write_text(json.dumps(nba_board, allow_nan=False, separators=(",", ":")))
+        print(f"Built docs/board_nba.json: {len(nba_board['games'])} games, {len(nba_board['props'])} props, "
+              f"{(out / 'board_nba.json').stat().st_size // 1024} KB of data.")
+except Exception as e:
+    print(f"NBA build failed, leaving the rest of the site unaffected: {e}")

@@ -45,6 +45,15 @@ jobs:
           path: data/cfb/games
           key: cfb-boxscores-${{ github.run_id }}
           restore-keys: cfb-boxscores-
+      # Same reasoning as the CFB cache above, but NBA's history is a full prior season (~1,230
+      # games) instead of a rolling 6 weeks — the very first run with no cache yet fetches all of
+      # it and will be slow; every run after that only fetches whatever's genuinely new (nothing,
+      # until the 2026-27 season starts producing its own completed games).
+      - uses: actions/cache@v4
+        with:
+          path: data/nba
+          key: nba-boxscores-${{ github.run_id }}
+          restore-keys: nba-boxscores-
       # Every run starts from a clean checkout with no data/ at all (it's gitignored, never committed) —
       # without this, the 3-hourly runs that DON'T pull fresh SGO lines would have nothing to fall back
       # to and would rebuild EST-only, wiping out the once-a-day pull until the next 13:00 UTC run. This

@@ -920,6 +920,22 @@ def get_cfb_board(force=False):
         return _cfb_cache["data"]
 
 
+_nba_lock = threading.Lock()
+_nba_cache = {"t": 0, "data": None}
+
+
+def get_nba_board(force=False):
+    """NBA history is a full prior season of individual game box scores (see nba.py) — cached even
+    longer than CFB, since last season's games never change at all until this season starts
+    producing its own (checked live: it hasn't yet), so there's nothing new to pick up in between."""
+    import nba
+    with _nba_lock:
+        if force or not _nba_cache["data"] or time.time() - _nba_cache["t"] > 3600:
+            _nba_cache["data"] = nba.build_board()
+            _nba_cache["t"] = time.time()
+        return _nba_cache["data"]
+
+
 # ------------------------------------------------------------------ routes ---
 @app.route("/")
 def index():
@@ -934,6 +950,11 @@ def api_board():
 @app.route("/api/board-ncaaf")
 def api_board_ncaaf():
     return jsonify(get_cfb_board())
+
+
+@app.route("/api/board-nba")
+def api_board_nba():
+    return jsonify(get_nba_board())
 
 
 @app.route("/api/refresh", methods=["POST"])
