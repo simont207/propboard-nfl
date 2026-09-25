@@ -149,6 +149,9 @@
   .zonewrap { display: flex; gap: 14px; flex-wrap: wrap; }
   .zonegrid { flex: 1 1 240px; max-width: 320px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .zonerow { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .losline { display: flex; align-items: center; gap: 8px; padding: 3px 10px; background: var(--bg); }
+  .losline::before, .losline::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  .losline span { font-size: 9px; color: var(--muted); letter-spacing: .05em; white-space: nowrap; }
   .zonecell { border: none; border-right: 1px solid var(--bg); border-bottom: 1px solid var(--bg); height: 68px;
     display: flex; align-items: center; justify-content: center; cursor: pointer; background: var(--panel2); padding: 0; }
   .zonecell.empty { color: var(--muted); font-size: 11px; cursor: default; }
@@ -1311,14 +1314,16 @@ function zoneChartHtml(p) {
   const g = board.games.find(x => x.id === p.game);
   const oppLogo = g ? (p.home ? g.away_logo : g.home_logo) : null;
   const tpg = p.log && p.log.length ? Math.round(selZ.targets / p.log.length * 10) / 10 : null;
-  const grid = ZONE_ROWS.map(([depth]) => `<div class="zonerow">${ZONE_COLS.map(side => {
+  const rowsHtml = ZONE_ROWS.map(([depth]) => `<div class="zonerow">${ZONE_COLS.map(side => {
     const z = `${depth}_${side}`, pv = zp.zones[z], dv = zd[z];
     if (!pv) return `<div class="zonecell empty">n/a</div>`;
     const size = 26 + Math.round(pv.pct / maxPct * 30);
     const tier = dv && dv.rank ? zoneTier(dv.rank) : '';
     return `<button class="zonecell ${tier} ${z === sel ? 'sel' : ''}" data-zone="${z}">
       <span class="dot" style="width:${size}px;height:${size}px">${Math.round(pv.pct)}%</span></button>`;
-  }).join('')}</div>`).join('');
+  }).join('')}</div>`);
+  rowsHtml.splice(3, 0, `<div class="losline"><span>Line of scrimmage</span></div>`);
+  const grid = rowsHtml.join('');
   return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
     <b>Receiving zone chart</b> <span class="muted" style="font-size:12px">— ${Math.round(favorable)}% of his targets come in zones where ${esc(p.opp)} is a weak matchup. Tap a zone for details.</span>
     <div class="zonewrap" style="margin-top:10px">
