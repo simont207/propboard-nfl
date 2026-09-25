@@ -624,8 +624,10 @@ function bestBetHtml(gameId) {
   const scored = board.props
     // 1Q/Q1/Longest markets have naturally trivial lines (e.g. "1+ yard in the first quarter") that
     // clear almost by definition -- they'd dominate a pure hit-rate ranking without being a meaningful
-    // pick, so they're excluded from Best Bet eligibility entirely rather than tuning around them.
-    .filter(p => p.game === gameId && !p.inj && !/^(1Q|Q1|Longest)/.test(p.label))
+    // pick. any_td is excluded for the opposite reason (Simon's call): touchdowns are opportunity/
+    // red-zone-dependent and volatile game to game even when recent games happen to look consistent,
+    // unlike accumulating yards or catches -- a fixed 0.5 line hides that volatility behind a clean %.
+    .filter(p => p.game === gameId && !p.inj && p.market !== 'any_td' && !/^(1Q|Q1|Longest)/.test(p.label))
     .map(p => ({ p, o: deriveOver(p) }))
     .filter(({ o }) => o.l10.n >= 5)
     .map(({ p, o }) => {
