@@ -142,6 +142,8 @@
   .grade.gC { background: #3d3212; color: var(--amber); } .grade.gD { background: #4a1d1d; color: var(--red); }
   .zbadge { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 22px;
     padding: 0 6px; border-radius: 6px; font-weight: 700; font-size: 11px; background: #0f2a3d; color: var(--blue); margin-left: 4px; }
+  .signal { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 6px; font-weight: 700;
+    font-size: 10px; background: #103a25; color: var(--green); border: 1px solid var(--green-dim); margin-left: 6px; }
   .gbadge { width: 104px; height: 96px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel2);
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
   .gbadge .L { font-size: 30px; font-weight: 800; }
@@ -589,6 +591,16 @@ function derive(p) {
   return { line, r, avg: last10.length ? last10.reduce((a, b) => a + b, 0) / last10.length : null,
            pct: r[F.win].pct };
 }
+// Flags a prop where several independent numbers already on the page happen to agree -- not a new
+// model or a prediction, just a "these signals line up" marker. Over-only: zone_edge is built from his
+// OWN targets landing where the defense is weak, which is inherently an Over-supporting read.
+function signalsAligned(p, d) {
+  if (F.side !== 'over' || p.zone_edge == null || p.zone_edge < 65) return false;
+  const l10 = d.r.l10;
+  if (!l10 || l10.n < 5 || l10.pct < 70) return false;
+  if (p.ev_over != null && p.ev_over <= 0) return false;
+  return true;
+}
 
 // ---- rendering --------------------------------------------------------
 // Photos/logos load straight from their owners' servers (never copied here). If one fails, or images are
@@ -748,7 +760,7 @@ function render() {
     const expanded = F.altLinesOpen || EXPANDED.has(p.id);
     const row = `<tr class="row" data-id="${esc(p.id)}">
       <td><div class="player">${pimg(p.player, p.img, 38)}
-        <div><div class="nm">${esc(p.player)}${p.inj ? `<span class="tag ${esc(p.inj)}">${esc(p.inj.slice(0, 1) === 'Q' ? 'Q' : p.inj)}</span>` : ''}</div>
+        <div><div class="nm">${esc(p.player)}${p.inj ? `<span class="tag ${esc(p.inj)}">${esc(p.inj.slice(0, 1) === 'Q' ? 'Q' : p.inj)}</span>` : ''}${signalsAligned(p, d) ? `<span class="signal" title="Zone Edge ${Math.round(p.zone_edge)}%, L10 hit rate ${Math.round(d.r.l10.pct)}%${p.ev_over != null ? `, +${p.ev_over.toFixed(0)}% EV` : ''} -- multiple signals agree, not a guarantee">Signals aligned</span>` : ''}</div>
         <div class="sub">${esc(p.pos)} · ${esc(p.team)}</div></div></div></td>
       <td>${p.home ? 'vs' : '@'} ${esc(p.opp)}</td>
       <td>${esc(p.label)}</td>
@@ -1056,6 +1068,7 @@ function renderPlayer(p) {
         <div class="stat"><div class="k">Hit rate · ${esc(cur[1])}</div><div class="v ${pcls(R[cur[0]])}">${R[cur[0]].n ? Math.round(R[cur[0]].pct) + '% ' : '–'}<small>${R[cur[0]].n ? R[cur[0]].hits + '/' + R[cur[0]].n : ''}</small></div></div>
         <div class="stat"><div class="k">Matchup rank</div><div class="v ${rkc}">${rk ? ord(rk) : '–'} <small>vs ${esc(p.pos)}</small></div></div>
         ${p.zone_edge != null ? `<div class="stat"><div class="k">Zone Edge</div><div class="v" title="% of his targets land in zones where ${esc(p.opp)} is weak">${Math.round(p.zone_edge)}%</div></div>` : ''}
+        ${signalsAligned(p, { r: { l10: R.l10 } }) ? `<div class="stat"><div class="k">&nbsp;</div><div class="v"><span class="signal" title="Zone Edge ${Math.round(p.zone_edge)}%, L10 hit rate ${Math.round(R.l10.pct)}%${p.ev_over != null ? `, +${p.ev_over.toFixed(0)}% EV` : ''} -- multiple signals agree, not a guarantee">Signals aligned</span></div></div>` : ''}
         <div class="stat"><div class="k">Opponent</div><div class="v">${p.home ? 'vs' : '@'} ${esc(p.opp)} <small>${g ? fmtTime(g.date) : ''}</small></div></div>
       </div>
       ${ti && ti.tier && ti.tier !== 'OUT' ? `<div class="gbadge"><div class="L">${TIER_ICON[ti.tier]}</div><div class="t">${ti.tier} · ${ti.score.toFixed(2)}<br>Sharpness tier</div></div>` : ''}
