@@ -377,6 +377,71 @@ def get_games():
     return games
 
 
+# lat/lon for OUTDOOR stadiums only -- dome and retractable-roof teams (ARI, ATL, DAL, DET, HOU, IND,
+# LV, LAC, LAR, MIN, NO) are omitted entirely since weather essentially never reaches the field there
+# and a closed-roof forecast would be misleading noise on a passing/kicking prop.
+OUTDOOR_STADIUMS = {
+    "BAL": (39.2780, -76.6227), "BUF": (42.7738, -78.7870), "CAR": (35.2258, -80.8528),
+    "CHI": (41.8623, -87.6167), "CIN": (39.0955, -84.5160), "CLE": (41.5061, -81.6995),
+    "DEN": (39.7439, -105.0201), "GB": (44.5013, -88.0622), "JAX": (30.3239, -81.6373),
+    "KC": (39.0489, -94.4839), "MIA": (25.9580, -80.2389), "NE": (42.0909, -71.2643),
+    "NYG": (40.8135, -74.0745), "NYJ": (40.8135, -74.0745), "PHI": (39.9008, -75.1675),
+    "PIT": (40.4468, -80.0158), "SEA": (47.5952, -122.3316), "SF": (37.4030, -121.9700),
+    "TB": (27.9759, -82.5033), "TEN": (36.1665, -86.7713), "WSH": (38.9076, -76.8645),
+}
+
+
+def load_weather(games):
+    """Forecast temp/wind/precip at kickoff for outdoor-stadium games only. Open-Meteo: free, no key.
+    Cached to disk per team+kickoff-hour since a forecast fetched a few hours apart for the same game
+    barely changes and this rebuilds every 3h -- avoids re-fetching ~20 games' forecasts every run."""
+    import datetime
+    cache_file = DATA / "weather_cache.json"
+    try:
+        cache = json.loads(cache_file.read_text())
+    except Exception:
+        cache = {}
+    out, changed = {}, False
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for g in games:
+        home = g["home"]
+        if home not in OUTDOOR_STADIUMS:
+            continue
+        try:
+            kickoff = datetime.datetime.fromisoformat(g["date"].replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if not (0 <= (kickoff - now).days <= 15):
+            continue
+        key = f"{home}_{kickoff.strftime('%Y%m%dT%H')}"
+        if key in cache:
+            out[g["id"]] = cache[key]
+            continue
+        lat, lon = OUTDOOR_STADIUMS[home]
+        try:
+            r = requests.get("https://api.open-meteo.com/v1/forecast", params={
+                "latitude": lat, "longitude": lon,
+                "hourly": "temperature_2m,precipitation_probability,wind_speed_10m",
+                "temperature_unit": "fahrenheit", "wind_speed_unit": "mph", "timezone": "UTC",
+                "forecast_days": 16,
+            }, headers=HTTP, timeout=15)
+            r.raise_for_status()
+            hourly = r.json()["hourly"]
+            times = [datetime.datetime.fromisoformat(t) for t in hourly["time"]]
+            kickoff_naive = kickoff.replace(tzinfo=None)
+            idx = min(range(len(times)), key=lambda i: abs(times[i] - kickoff_naive))
+            entry = {"temp": round(hourly["temperature_2m"][idx]), "wind": round(hourly["wind_speed_10m"][idx]),
+                      "precip": round(hourly["precipitation_probability"][idx])}
+            cache[key] = entry
+            out[g["id"]] = entry
+            changed = True
+        except Exception as e:
+            print(f"  weather fetch failed for {home}: {e}")
+    if changed:
+        cache_file.write_text(json.dumps(cache))
+    return out
+
+
 # ---------------------------------------------------------- sportsbook API ---
 def norm_name(n):
     n = re.sub(r"[^a-z ]", "", (n or "").lower().replace(".", ""))
@@ -915,6 +980,9 @@ def q1_tiers(df, games, inj_latest):
 def build_board():
     df = load_stats()
     games = get_games()
+    weather = load_weather(games)
+    for g in games:
+        g["weather"] = weather.get(g["id"])
     inj, inj_week, inj_latest = load_injuries()
     odds = load_odds()
     sgo = load_sgo()

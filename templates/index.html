@@ -36,6 +36,7 @@
   .game .teams { display: flex; align-items: center; gap: 6px; font-weight: 600; }
   .game img { width: 20px; height: 20px; }
   .game .meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .game .meta.weather-notable { color: var(--amber); }
 
   .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
   .pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -646,6 +647,12 @@ function pimg(name, url, size, radius = '50%') {
   if (!SHOW_IMAGES || !url) return fb;
   return `<img src="${esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer" style="${st};object-fit:cover;background:var(--panel2)" data-fb="${esc(fb)}" onerror="this.outerHTML=this.dataset.fb">`;
 }
+function weatherLine(g) {
+  if (!g.weather) return '';
+  const { temp, wind, precip } = g.weather;
+  const notable = wind >= 15 || precip >= 30 || temp <= 32 || temp >= 90;
+  return `<div class="meta${notable ? ' weather-notable' : ''}">${temp}°F · ${wind}mph wind${precip >= 20 ? ` · ${precip}% rain` : ''}</div>`;
+}
 function timg(code, url, size, bare = false) {       // bare = the team code is already written next to the logo
   const fb = bare ? '' : `<span class="tbadge" style="height:${size}px;min-width:${size}px;font-size:${Math.max(9, Math.round(size * 0.36))}px">${esc(code)}</span>`;
   if (!SHOW_IMAGES || !url) return fb;
@@ -869,7 +876,8 @@ function renderTop() {
     return `<div class="game" data-id="${g.id}">
       <div class="teams">${timg(g.away, g.away_logo, 20, true)}${esc(g.away)} <span class="muted">@</span> ${timg(g.home, g.home_logo, 20, true)}${esc(g.home)}</div>
       <div class="meta">${g.week ? `Wk ${g.week} · ` : ''}${t}${g.state === 'in' ? ' · LIVE' : ''}</div>
-      <div class="meta">${esc(g.spread || '')}${g.total ? ' · O/U ' + g.total : ''}</div></div>`;
+      <div class="meta">${esc(g.spread || '')}${g.total ? ' · O/U ' + g.total : ''}</div>
+      ${weatherLine(g)}</div>`;
   }).join('');
   document.querySelectorAll('#games .game').forEach(el => el.onclick = () => openGameOnBoard(el.dataset.id, false));
   $('#oddsInfo').textContent = board.has_key
@@ -1194,6 +1202,7 @@ function renderPlayer(p) {
           ${mline('vs league', (pctDiff >= 0 ? '+' : '') + pctDiff.toFixed(0) + '%', pctDiff >= 0 ? (side === 'over' ? 'g' : 'r') : (side === 'over' ? 'r' : 'g'))}` : '<div class="muted">No defense data.</div>'}
         ${implied != null ? mline(`${esc(p.team)} implied team total`, implied.toFixed(1)) : ''}
         ${g ? mline('Game line', `${esc(g.spread || '–')}${total ? ' · O/U ' + total : ''}`) : ''}
+        ${g && g.weather ? mline('Weather at kickoff', `${g.weather.temp}°F, ${g.weather.wind}mph wind${g.weather.precip >= 20 ? `, ${g.weather.precip}% rain` : ''}`, g.weather.wind >= 15 || g.weather.precip >= 30 ? 'r' : '') : ''}
         ${mline(`${esc(p.player.split(' ').slice(-1)[0])} vs ${esc(p.opp)}`, h2h.length ? `${fmtNum(Math.round(avgOf(h2h.map(x => x[3])) * 10) / 10)} avg (${h2h.length} g)` : 'no games')}
         ${recent.length ? `<h4 style="margin:16px 0 4px">${esc(p.opp)}'s last ${recent.length} games vs ${posName}</h4><table class="recent">
           <tr class="muted"><th>Game</th><th>All ${posName}</th><th>Top performer</th></tr>
@@ -1446,7 +1455,7 @@ function renderGame(g) {
     <a class="back" href="#/">← Back to board</a>
     <div class="hero" style="align-items:center">
       <div class="gteams">${timg(away, g.away_logo, 40, true)}${esc(away)} <span class="muted" style="font-size:16px">@</span> ${timg(home, g.home_logo, 40, true)}${esc(home)}</div>
-      <div class="muted">${g.week ? `Wk ${g.week} · ` : ''}${fmtTime(g.date)} · ${esc(g.spread || '')}${g.total ? ' · O/U ' + g.total : ''}</div>
+      <div class="muted">${g.week ? `Wk ${g.week} · ` : ''}${fmtTime(g.date)} · ${esc(g.spread || '')}${g.total ? ' · O/U ' + g.total : ''}${g.weather ? ` · ${g.weather.temp}°F, ${g.weather.wind}mph${g.weather.precip >= 20 ? `, ${g.weather.precip}% rain` : ''}` : ''}</div>
       <div class="spacer"></div><button class="btn" id="gvBoard">Show this game on the board</button>
     </div>
     <div class="pills" style="margin-top:14px"><button class="pill ${GV.market === 'all' ? 'on' : ''}" data-m="all">All props</button>
