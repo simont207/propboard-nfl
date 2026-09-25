@@ -289,6 +289,10 @@
   .x:hover { color: var(--red); }
   .slip-f { border-top: 1px solid var(--line); padding: 14px 16px; }
   .slip-f input { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; width: 80px; }
+  .corr { padding: 10px 14px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel2); }
+  .corr-row { font-size: 12px; line-height: 1.5; padding: 4px 0; }
+  .corr-row.g { color: var(--green); } .corr-row.r { color: var(--red); }
+  .corr-row b { color: var(--text); }
   .bignum { font-size: 24px; font-weight: 800; }
   #slipBar { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 14;
     display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--green); color: #06210f;
@@ -1579,6 +1583,42 @@ function legStats(l) {
   const rt = k => { const a = v.slice(-k); return { hits: a.filter(x => side === 'under' ? x < l.thr : x >= l.thr).length, n: a.length }; };
   return { l5: rt(5), l10: rt(10) };
 }
+// Real cross-player correlation for two parlay legs, using each leg's actual game history matched by
+// game_id (not just date/opponent, which can drift for a bye week or reschedule) -- not a model, just
+// counting how often both legs' own hit/miss lined up in games they both actually have a stat line for.
+function legCorrelation(legA, legB) {
+  const pA = board && board.props.find(x => x.pid === legA.pid && x.market === legA.market && x.game === legA.game);
+  const pB = board && board.props.find(x => x.pid === legB.pid && x.market === legB.market && x.game === legB.game);
+  if (!pA || !pB || pA.pid === pB.pid) return null;
+  const hit = (p, l, x) => (l.side === 'under' ? x[3] < l.thr : x[3] >= l.thr);
+  const byGame = p => Object.fromEntries(p.log.filter(x => x[8]).map(x => [x[8], x]));
+  const gA = byGame(pA), gB = byGame(pB);
+  const shared = Object.keys(gA).filter(id => gB[id]);
+  if (shared.length < 3) return null;
+  let bothHit = 0, aHits = 0, bHits = 0;
+  shared.forEach(id => {
+    const ha = hit(pA, legA, gA[id]), hb = hit(pB, legB, gB[id]);
+    if (ha) aHits++; if (hb) bHits++; if (ha && hb) bothHit++;
+  });
+  const n = shared.length, pctA = aHits / n, pctB = bHits / n, actual = bothHit / n, expected = pctA * pctB;
+  return { n, actual, expected, signal: actual - expected };
+}
+function correlationHtml() {
+  if (SLIP.length < 2) return '';
+  const rows = [];
+  for (let i = 0; i < SLIP.length; i++) for (let j = i + 1; j < SLIP.length; j++) {
+    const c = legCorrelation(SLIP[i], SLIP[j]);
+    if (c && Math.abs(c.signal) >= 0.15) rows.push({ a: SLIP[i], b: SLIP[j], ...c });
+  }
+  if (!rows.length) return '';
+  rows.sort((a, b) => Math.abs(b.signal) - Math.abs(a.signal));
+  return `<div class="corr">
+    <div class="muted small" style="margin-bottom:6px">Correlation insights <span title="Compares how often both legs actually hit together in games they both have a stat line for, vs. what you'd expect if they were unrelated. Small samples -- a signal, not a guarantee.">ⓘ</span></div>
+    ${rows.slice(0, 3).map(r => `<div class="corr-row ${r.signal > 0 ? 'g' : 'r'}">
+      <b>${esc(r.a.name)}</b> + <b>${esc(r.b.name)}</b> hit together in ${Math.round(r.actual * 100)}% of ${r.n} shared games
+      (expected ~${Math.round(r.expected * 100)}% if unrelated) ${r.signal > 0 ? '— tend to hit together' : '— tend to conflict'}.</div>`).join('')}
+  </div>`;
+}
 function emptySlipHtml() {
   if (!board || !board.games.length) return '<div class="empty"><div class="ic">🎫</div><div class="msg">Your slip is empty</div><div class="sub">Open a game and tap an alt line to add it.</div></div>';
   return `<div style="padding:16px"><b>Your parlay is empty.</b>
@@ -1609,6 +1649,7 @@ function renderSlip() {
     <div class="slip-h"><b>Parlay slip · ${SLIP.length} leg${SLIP.length === 1 ? '' : 's'}</b>
       <span>${SLIP.length ? '<button class="btn" id="slipClear">Clear</button> ' : ''}<button class="btn" id="slipClose">✕</button></span></div>
     <div class="slip-legs">${legs || emptySlipHtml()}</div>
+    ${correlationHtml()}
     ${SLIP.length ? `<div class="slip-f">
       <div class="muted small">Rough chance every leg hits</div>
       <div class="bignum">${haveEst ? (est * 100).toFixed(est < 0.1 ? 1 : 0) + '%' : '–'}</div>

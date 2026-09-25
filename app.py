@@ -805,12 +805,15 @@ def zone_edge(pid, opp, zones_player, zones_def):
 
 
 def game_entry(sched, r, mkey):
-    """[season, week, opp, value, date, was_home, fav_margin, total] for one past game."""
+    """[season, week, opp, value, date, was_home, fav_margin, total, game_id] for one past game.
+    game_id lets the frontend match two DIFFERENT players' histories to the exact same real game
+    (for correlation insights) -- date+opp alone isn't reliable since a bye week or reschedule can
+    make two teammates' own game logs drift out of alignment even in the same season+week."""
     day, home_team, spread, total = sched.get(r.game_id, (None, None, None, None))
     was_home = 1 if r.team == home_team else 0
     fav = None if pd.isna(spread) else float(spread if was_home else -spread)
     return [int(r.season), int(r.week), r.opponent_team, float(getattr(r, mkey)),
-            day, was_home, fav, None if pd.isna(total) else float(total)]
+            day, was_home, fav, None if pd.isna(total) else float(total), r.game_id]
 
 
 # ------------------------------------------------- Q1 5+ sharpness tiers ---
