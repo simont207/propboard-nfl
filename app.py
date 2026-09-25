@@ -416,6 +416,7 @@ SGO_MARKETS = {                    # (SportsGameOdds statID, periodID) -> our ma
     ("extraPoints_kicksMade", "game"): "xp_made_m",
 }
 TD_MARKETS = {"any_td", "q1_any_td"}
+ZONE_MARKETS = {"rec_yds", "rec", "targets_m", "long_rec"}    # receiving-only -- zone edge is about routes/targets
 EXTRA_BOOKS = ["bovada", "pointsbet", "unibet", "williamhill"]   # SGO books not already in BOOK_ORDER
 for _b in EXTRA_BOOKS:
     if _b not in BOOK_ORDER:
@@ -669,6 +670,14 @@ def usage_shares(cur, latest, games):
     return out
 
 
+def _favorable_pct(zp, zd):
+    """% of a player's own targets that land in zones where a given defense ranks in the weak third
+    (rank <= 10 of 32) — the one number both zone_fit() and zone_edge() below are built from."""
+    if not zp or not zd:
+        return None
+    return round(sum(v["pct"] for z, v in zp["zones"].items() if zd.get(z, {}).get("rank", 99) <= 10), 1)
+
+
 def zone_fit(games, latest, zones_player, zones_def):
     """Rank each team's WR/TE/RBs by how much of their OWN target share lands in zones where this
     week's specific opponent is weak — the zone chart alone only answers "how does this one player fit,"
@@ -686,13 +695,22 @@ def zone_fit(games, latest, zones_player, zones_def):
                 zp = zones_player.get(pid)
                 if not zp or zp["total"] < 8:
                     continue
-                fav = sum(v["pct"] for z, v in zp["zones"].items() if zd.get(z, {}).get("rank", 99) <= 10)
-                vals.append((r.player_display_name, round(fav, 1)))
+                vals.append((r.player_display_name, _favorable_pct(zp, zd)))
             if len(vals) < 2:
                 continue
             vals.sort(key=lambda x: -x[1])
             out[f"{t}|{o}"] = vals
     return out
+
+
+def zone_edge(pid, opp, zones_player, zones_def):
+    """Same favorable-zone% as zone_fit(), but for one player against one specific opponent — attached
+    directly to his receiving prop rows so it's sortable/filterable on the board, not just visible after
+    clicking into his own page."""
+    zp = zones_player.get(pid)
+    if not zp or zp["total"] < 8:
+        return None
+    return _favorable_pct(zp, zones_def.get(opp))
 
 
 def game_entry(sched, r, mkey):
@@ -952,6 +970,7 @@ def build_board():
                         "vol": round(float(vol), 1),
                         "tier": tiers.get((pid, mkey, g["id"])),
                         "ev_over": None, "ev_under": None, "real_alts": [], "fair_line": None,
+                        "zone_edge": zone_edge(pid, o, zones_player, zones_def) if mkey in ZONE_MARKETS else None,
                     }
                     books = odds["lines"].get(f"{norm_name(p.player_display_name)}|{mkey}")
                     if books:
