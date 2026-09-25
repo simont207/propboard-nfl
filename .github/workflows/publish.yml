@@ -69,6 +69,13 @@ jobs:
           path: data/sgo_odds.json
           key: sgo-odds-${{ github.run_id }}
           restore-keys: sgo-odds-
+      # Same reasoning as the SGO odds cache above -- without this every run fetches all ~20 outdoor
+      # games' weather from scratch instead of only the ones that changed or are newly in range.
+      - uses: actions/cache@v4
+        with:
+          path: data/weather_cache.json
+          key: weather-${{ github.run_id }}
+          restore-keys: weather-
       - run: python build_static.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
