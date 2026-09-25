@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -644,6 +645,31 @@ def ev_pct(book_odds, fair_odds):
     return round((p_fair * d_book - 1) * 100, 1)
 
 
+def best_book_price(books, side):
+    """Among books quoting the exact same line AS EACH OTHER (the modal line among the books
+    themselves -- not the row's own displayed line, which can be our own estimate when SGO has no
+    top-level consensus number, and wouldn't match any real book's posted line at all), whichever pays
+    the best odds for that side. None if fewer than 2 books agree on a line -- comparing odds across
+    different lines isn't apples to apples (a tougher line at worse odds isn't a "better price").
+    Book lines come through as strings from the SGO response; cast before comparing or every
+    comparison silently fails ('238.5' == 235.5 is always False in Python)."""
+    lined = []
+    for b in books:
+        if b.get("line") is None or b.get(side) is None:
+            continue
+        try:
+            lined.append((float(b["line"]), b))
+        except (TypeError, ValueError):
+            continue
+    if len(lined) < 2:
+        return None
+    counts = Counter(t for t, _ in lined)
+    modal_line, n = counts.most_common(1)[0]
+    if n < 2:
+        return None
+    return max((b for t, b in lined if t == modal_line), key=lambda b: b[side])
+
+
 def pull_odds(api_key):
     """One pull = 1 call per game x 7 markets. Only runs when the user clicks the button."""
     r = requests.get(f"{ODDS_API}/events", params={"apiKey": api_key}, timeout=30)
@@ -1062,6 +1088,11 @@ def build_board():
                         row["real_alts"] = [{"t": a["t"], "over_odds": a.get("over", {}).get("odds"),
                                               "over_book": a.get("over", {}).get("book")}
                                              for a in sg["alts"] if a.get("over")]
+                    if row["books"]:
+                        row["best_over"] = best_book_price(row["books"], "over")
+                        row["best_under"] = best_book_price(row["books"], "under")
+                    else:
+                        row["best_over"] = row["best_under"] = None
                     rows.append(row)
 
     return {
