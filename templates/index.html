@@ -381,6 +381,7 @@ window.onerror = function (msg, src, line) {
   <div id="sportBanner"></div>
   <div class="games" id="games"></div>
   <div class="note" style="margin:-4px 0 10px">Click a game to see every player's alt lines and build a parlay.</div>
+  <div id="bestBet"></div>
 
   <div class="pills" id="markets"></div>
   <div class="note" style="margin:-4px 0 10px">Tap a prop to toggle it on or off — pick just one or several at once. Tap <b>All props</b> to clear the picks and show everything.</div>
@@ -592,6 +593,16 @@ function derive(p) {
   return { line, r, avg: last10.length ? last10.reduce((a, b) => a + b, 0) / last10.length : null,
            pct: r[F.win].pct };
 }
+// Same shape as derive()'s window rates, but always the Over side regardless of the global F.side
+// toggle -- used by the Best Bet card, which is an inherently Over-framed pick (same reasoning as
+// signalsAligned's zone_edge: it's about a player clearing a line, not the board's current toggle).
+function deriveOver(p) {
+  const line = lineFor(p), v = p.log.map(x => x[3]);
+  const season = p.log.filter(x => x[0] === board.season).map(x => x[3]);
+  const h2h = p.log.filter(x => x[2] === p.opp).map(x => x[3]);
+  return { line, l5: rate(v.slice(-5), line, 'over'), l10: rate(v.slice(-10), line, 'over'),
+           season: rate(season, line, 'over'), h2h: rate(h2h, line, 'over') };
+}
 // Flags a prop where several independent numbers already on the page happen to agree -- not a new
 // model or a prediction, just a "these signals line up" marker. Over-only: zone_edge is built from his
 // OWN targets landing where the defense is weak, which is inherently an Over-supporting read.
@@ -601,6 +612,77 @@ function signalsAligned(p, d) {
   if (!l10 || l10.n < 5 || l10.pct < 70) return false;
   if (p.ev_over != null && p.ev_over <= 0) return false;
   return true;
+}
+// Ranks every healthy player's Over prop in one game by hit-rate CONSISTENCY (the average of his L5/L10/
+// season rates, not just one window -- a single hot streak shouldn't top this) with Zone Edge as the
+// tiebreaker, and surfaces the single best one. Injured players (any status, not just Out) are excluded
+// outright rather than derated, since "healthy" is a binary Simon asked for, not a spectrum.
+function bestBetHtml(gameId) {
+  if (!gameId) return '';
+  const g = board.games.find(x => x.id === gameId);
+  if (!g) return '';
+  const scored = board.props
+    // 1Q/Q1/Longest markets have naturally trivial lines (e.g. "1+ yard in the first quarter") that
+    // clear almost by definition -- they'd dominate a pure hit-rate ranking without being a meaningful
+    // pick, so they're excluded from Best Bet eligibility entirely rather than tuning around them.
+    .filter(p => p.game === gameId && !p.inj && !/^(1Q|Q1|Longest)/.test(p.label))
+    .map(p => ({ p, o: deriveOver(p) }))
+    .filter(({ o }) => o.l10.n >= 5)
+    .map(({ p, o }) => {
+      const windows = [o.l5, o.l10, o.season].filter(w => w.n >= 2);
+      const consistency = windows.length ? windows.reduce((s, w) => s + w.pct, 0) / windows.length : 0;
+      // rank 1 = defense allows the most = best matchup for the Over -> matchupPct 100; rank n -> 0.
+      // Same direction gradeOf() already uses elsewhere, just as a continuous score instead of a letter.
+      const rn = poolN(p.pos, p.market);
+      const matchupPct = p.opp_rank != null ? (1 - (p.opp_rank - 1) / Math.max(1, rn - 1)) * 100 : 50;
+      // Hit rate alone rewards trivially-easy lines regardless of matchup (a backup DB's 1.5-tackle
+      // line clears often on habit, not on this week's matchup) -- matchup and zone edge (when it
+      // applies) are weighted in directly, not just shown as after-the-fact context.
+      const score = consistency * 0.55 + matchupPct * 0.3 + (p.zone_edge ?? matchupPct) * 0.15;
+      return { p, o, consistency, matchupPct, score };
+    });
+  if (!scored.length) return '';
+  scored.sort((a, b) => b.score - a.score);
+  const { p, o, consistency } = scored[0];
+  const rk = p.opp_rank, rn = poolN(p.pos, p.market), gr = gradeOf(rk, 'over', rn);
+  const aligned = p.zone_edge != null && p.zone_edge >= 65 && o.l10.n >= 5 && o.l10.pct >= 70
+    && (p.ev_over == null || p.ev_over > 0);
+  const bars = p.log.slice(-10).map(x => {
+    const hit = x[3] > o.line;
+    const max = Math.max(...p.log.slice(-10).map(y => y[3]), o.line, 1);
+    return `<div style="flex:1;background:${hit ? 'var(--green)' : 'var(--red)'};height:${Math.max(8, Math.round(x[3] / max * 100))}%;border-radius:2px"></div>`;
+  }).join('');
+  const winCell = (label, w) => `<div style="text-align:center"><div style="font-size:16px;font-weight:800;color:${w.n ? 'var(--green)' : 'var(--muted)'}">${w.n ? Math.round(w.pct) + '%' : '–'}</div><div style="font-size:10px;color:var(--muted)">${label} &middot; ${w.hits}/${w.n}</div></div>`;
+  const onCur = inSlip(p, o.line, 'over');
+  return `<div class="chartcard" style="margin:-2px 0 14px">
+    <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.04em;margin-bottom:10px">${aligned ? 'HIGH-CONFIDENCE PICK' : 'BEST BET'} &middot; THIS GAME</div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      ${pimg(p.player, p.img, 44)}
+      <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">${esc(p.player)}</div>
+      <div style="font-size:12px;color:var(--muted)">${esc(p.pos)} &middot; ${esc(p.team)} &middot; ${p.home ? 'vs' : '@'} ${esc(p.opp)}</div></div>
+      <span style="background:#123524;color:var(--green);font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px">ACTIVE</span>
+    </div>
+    ${aligned ? `<div style="margin-bottom:12px"><span class="signal">Signals aligned</span></div>` : ''}
+    <div style="font-size:19px;font-weight:800;margin-bottom:12px">${esc(p.label)} &middot; Over ${o.line}</div>
+    <div style="background:var(--panel2);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:8px">HIT RATE BY WINDOW</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+        ${winCell('L5', o.l5)}${winCell('L10', o.l10)}${winCell('Season', o.season)}${winCell('vs Opp', o.h2h)}
+      </div>
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:3px;height:44px;margin-bottom:14px">${bars}</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
+      <div style="text-align:center;background:var(--panel2);border-radius:6px;padding:6px 2px">
+        <div style="font-size:10px;color:var(--muted)">Matchup</div><div style="font-size:13px;font-weight:700;color:${gr ? 'var(--green)' : 'var(--muted)'}">${gr ? gr.L + ' &middot; ' + ord(rk) : '–'}</div></div>
+      <div style="text-align:center;background:var(--panel2);border-radius:6px;padding:6px 2px">
+        <div style="font-size:10px;color:var(--muted)">Zone edge</div><div style="font-size:13px;font-weight:700;color:${p.zone_edge != null ? 'var(--blue)' : 'var(--muted)'}">${p.zone_edge != null ? Math.round(p.zone_edge) + '%' : '–'}</div></div>
+      <div style="text-align:center;background:var(--panel2);border-radius:6px;padding:6px 2px">
+        <div style="font-size:10px;color:var(--muted)">Real book EV</div><div style="font-size:13px;font-weight:700;color:${p.ev_over != null ? (p.ev_over >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted)'}">${p.ev_over != null ? (p.ev_over >= 0 ? '+' : '') + p.ev_over.toFixed(0) + '%' : '–'}</div></div>
+    </div>
+    <p style="font-size:12px;color:var(--muted);line-height:1.5;margin:0 0 14px">Averaging ${Math.round(consistency)}% across his recent hit-rate windows${gr ? `, against a defense grading ${gr.L} here` : ''}${p.zone_edge != null ? `, with ${Math.round(p.zone_edge)}% of his targets in zones where ${esc(p.opp)} is weak` : ''}.</p>
+    <button class="qbtn addbtn ${onCur ? 'on' : ''}" style="width:100%;padding:10px;font-weight:700;font-size:13px" data-id="${esc(p.id)}" data-t="${o.line}" data-side="over" data-label="Add to parlay" title="${onCur ? 'Remove from parlay slip' : `Add Over ${o.line} to your parlay`}">${onCur ? '✓' : 'Add to parlay'}</button>
+    <div style="font-size:11px;color:var(--muted);margin-top:10px">Ranked #1 of ${scored.length} eligible props in this game &middot; describes recent results, not a prediction or guarantee.</div>
+  </div>`;
 }
 
 // ---- rendering --------------------------------------------------------
@@ -750,6 +832,7 @@ function render() {
   $('#tierOnlyWrap').hidden = !activeQ1(); $('#clearGame').hidden = !F.game; $('#openParlay').hidden = !F.game;
   document.querySelectorAll('#markets .pill').forEach(el => el.classList.toggle('on', el.dataset.k === 'all' ? F.markets.size === 0 : F.markets.has(el.dataset.k)));
   document.querySelectorAll('#games .game').forEach(el => el.classList.toggle('on', el.dataset.id === F.game));
+  $('#bestBet').innerHTML = bestBetHtml(F.game);
   const rows = filtered(), CAP = 300, shown = rows.slice(0, CAP);
   const gmap = Object.fromEntries(board.games.map(g => [g.id, g]));
   $('#tbody').innerHTML = shown.length ? shown.map(({ p, d }) => {
@@ -795,7 +878,7 @@ function render() {
     if (e.target.classList.contains('lineinput')) return;
     location.hash = '#/p/' + encodeURIComponent(tr.dataset.id);
   });
-  document.querySelectorAll('#tbody .addbtn').forEach(el => el.onclick = e => {
+  document.querySelectorAll('#tbody .addbtn, #bestBet .addbtn').forEach(el => el.onclick = e => {
     e.stopPropagation();
     const p = board.props.find(x => x.id === el.dataset.id);
     const t = +el.dataset.t, addSide = el.dataset.side;
@@ -1489,13 +1572,13 @@ function refreshChips() {
 }
 // re-style the board's + and player-page's + button in place, same reason as refreshChips
 function refreshBoardAddButtons() {
-  document.querySelectorAll('#tbody .addbtn, #pvMain .addbtn').forEach(el => {
+  document.querySelectorAll('#tbody .addbtn, #pvMain .addbtn, #bestBet .addbtn').forEach(el => {
     const p = board.props.find(x => x.id === el.dataset.id);
     if (!p) return;
     const t = +el.dataset.t, side = el.dataset.side;
     const on = inSlip(p, t, side);
     el.classList.toggle('on', on);
-    el.textContent = on ? '✓' : '+';
+    el.textContent = on ? '✓' : (el.dataset.label || '+');
     el.title = on ? 'Remove from parlay slip' : `Add ${side === 'over' ? 'Over' : 'Under'} ${t} to your parlay`;
   });
 }
