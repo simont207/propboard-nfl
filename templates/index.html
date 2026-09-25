@@ -9,7 +9,6 @@
     --bg: #0c0f0e; --panel: #141917; --panel2: #1a211e; --line: #263029;
     --text: #e8efeb; --muted: #8b9a91; --green: #4ade80; --green-dim: #1f6b3d;
     --red: #f87171; --amber: #fbbf24; --blue: #60a5fa;
-    --accent: #a78bfa; --accent-dim: #4c3a8a; --accent-ink: #1e1240; --accent-bg: #201a3d;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
@@ -18,13 +17,13 @@
   header { display: flex; align-items: center; gap: 12px; padding: 14px 20px;
     border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   .logo { font-weight: 800; font-size: 20px; letter-spacing: -.02em; }
-  .logo b { color: var(--accent); }
+  .logo b { color: var(--green); }
   a.logo { color: inherit; text-decoration: none; display: inline-block; cursor: pointer; }
   .spacer { flex: 1; }
   .btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
     padding: 7px 12px; cursor: pointer; }
-  .btn:hover { border-color: var(--accent-dim); }
-  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .btn:hover { border-color: var(--green-dim); }
+  .btn.primary { background: var(--green); color: #06210f; border-color: var(--green); font-weight: 600; }
   .btn:disabled { opacity: .5; cursor: default; }
   .muted { color: var(--muted); }
   main { padding: 16px 20px 60px; max-width: 1600px; margin: 0 auto; }
@@ -33,7 +32,7 @@
   .games { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px; }
   .game { flex: 0 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
     padding: 8px 12px; cursor: pointer; min-width: 150px; }
-  .game.on { border-color: var(--accent); background: var(--accent-bg); }
+  .game.on { border-color: var(--green); background: #15251c; }
   .game .teams { display: flex; align-items: center; gap: 6px; font-weight: 600; }
   .game img { width: 20px; height: 20px; }
   .game .meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
@@ -42,20 +41,20 @@
   .pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
   .pill { background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
     padding: 5px 13px; cursor: pointer; white-space: nowrap; }
-  .pill.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .pill.on { background: var(--green); color: #06210f; border-color: var(--green); font-weight: 600; }
   .filters select, .filters input[type=text], .filters input[type=number] {
     background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
   .filters label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .seg button { background: var(--panel); border: 0; padding: 6px 12px; cursor: pointer; }
-  .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .seg button.on { background: var(--green); color: #06210f; font-weight: 600; }
 
   .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
   table { border-collapse: collapse; width: 100%; min-width: 1050px; }
   th { text-align: left; font-weight: 500; font-size: 12px; color: var(--muted); padding: 10px 10px;
     border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none;
     position: sticky; top: 0; background: var(--panel); }
-  th.sorted { color: var(--accent); }
+  th.sorted { color: var(--green); }
   td { padding: 8px 10px; border-bottom: 1px solid #1c2420; white-space: nowrap; }
   tr.row { cursor: pointer; }
   tr.row:hover td { background: var(--panel2); }
@@ -66,22 +65,22 @@
   .tag { font-size: 10px; font-weight: 700; border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: 1px; }
   .tag.Out, .tag.Doubtful { background: #4a1d1d; color: var(--red); }
   .tag.Questionable { background: #3d3212; color: var(--amber); }
-  .tag.book { background: var(--accent-bg); color: var(--accent); }
+  .tag.book { background: #123524; color: var(--green); }
   .tag.est { background: #2a2410; color: var(--amber); }
   .banner { background: #2a2410; border: 1px solid #5c4d12; color: #f3dd8a; padding: 9px 14px;
     border-radius: 8px; margin-bottom: 14px; font-size: 13px; }
   .wlrow { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
   .wlname { width: 150px; flex-shrink: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .wlname.on { font-weight: 700; color: var(--accent); }
+  .wlname.on { font-weight: 700; color: var(--green); }
   .wltrack { flex: 1; height: 16px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
   .wlfill { height: 100%; background: var(--blue); border-radius: 4px; }
-  .wlfill.on { background: var(--accent); }
+  .wlfill.on { background: var(--green); }
   .wlval { width: 34px; flex-shrink: 0; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .ralink { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .ralink:last-child { border-bottom: none; }
   .lineinput { width: 72px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
     padding: 4px 6px; text-align: right; font-variant-numeric: tabular-nums; }
-  .lineinput:focus { outline: none; border-color: var(--accent); }
+  .lineinput:focus { outline: none; border-color: var(--green); }
   .hit { font-weight: 700; font-variant-numeric: tabular-nums; }
   .hit small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
   .g { color: var(--green); } .r { color: var(--red); } .m { color: var(--text); } .n { color: var(--muted); }
@@ -93,7 +92,7 @@
   .search { position: relative; flex: 1 1 280px; max-width: 560px; }
   .search input { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
     padding: 9px 16px; }
-  .search input:focus { outline: none; border-color: var(--accent); }
+  .search input:focus { outline: none; border-color: var(--green); }
   .results { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--panel);
     border: 1px solid var(--line); border-radius: 12px; z-index: 30; max-height: 70vh; overflow-y: auto;
     box-shadow: 0 12px 40px rgba(0,0,0,.5); }
@@ -119,14 +118,14 @@
   .pv-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer;
     border-bottom: 1px solid #1c2420; }
   .pv-item:hover { background: var(--panel2); }
-  .pv-item.on { background: var(--accent-bg); box-shadow: inset 3px 0 0 var(--accent); }
+  .pv-item.on { background: #15251c; box-shadow: inset 3px 0 0 var(--green); }
   .pv-item img { width: 34px; height: 34px; border-radius: 50%; background: var(--panel2); object-fit: cover; flex: none; }
   .pv-item .nm { font-weight: 600; font-size: 13px; }
   .pv-item .sub { font-size: 11px; color: var(--muted); }
   .pv-main { min-width: 0; }
   .back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px; color: var(--muted);
     text-decoration: none; }
-  .back:hover { color: var(--accent); }
+  .back:hover { color: var(--green); }
   .tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px; padding-bottom: 4px; }
   .hero { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-end; background: var(--panel);
     border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
@@ -161,7 +160,7 @@
     display: flex; align-items: center; justify-content: center; cursor: pointer; background: var(--panel2); padding: 0; }
   .zonecell.empty { color: var(--muted); font-size: 11px; cursor: default; }
   .zonecell.weak { background: #173404; } .zonecell.neutral { background: #3d2f0e; } .zonecell.tough { background: #3a1414; }
-  .zonecell.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+  .zonecell.sel { box-shadow: inset 0 0 0 2px var(--green); }
   .zonecell .dot { border-radius: 50%; background: var(--panel); display: flex; align-items: center; justify-content: center;
     font-size: 13px; font-weight: 700; color: var(--text); border: 2px solid var(--line); }
   .zonecell.weak .dot { border-color: var(--green); color: var(--green); }
@@ -177,8 +176,8 @@
   .win .lb { font-size: 13px; } .win .pc { font-weight: 700; font-size: 15px; }
   .chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
   .chip { border: 1px solid var(--line); background: var(--panel2); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
-  .chip:hover { border-color: var(--accent-dim); }
-  .chip.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); }
+  .chip:hover { border-color: var(--green-dim); }
+  .chip.on { border-color: var(--green); background: #15251c; color: var(--green); }
   .chip.clear { font-size: 12px; padding: 3px 10px; color: var(--muted); }
   .panels { display: grid; grid-template-columns: 1.15fr 1fr; gap: 14px; margin-top: 14px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
@@ -214,9 +213,9 @@
   .modal input[type=text], .modal input[type=password] { width: 100%; background: var(--bg);
     border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; margin: 8px 0 12px; }
   .modal ol { padding-left: 20px; color: var(--muted); }
-  .modal a { color: var(--accent); }
+  .modal a { color: var(--green); }
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--panel2);
-    border: 1px solid var(--accent-dim); padding: 10px 16px; border-radius: 10px; display: none; z-index: 20; }
+    border: 1px solid var(--green-dim); padding: 10px 16px; border-radius: 10px; display: none; z-index: 20; }
   .toast.on { display: block; }
   .toast.err { border-color: var(--red); }
 
@@ -236,26 +235,26 @@
   .pcard .ph { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .pcard .ph img { width: 42px; height: 42px; border-radius: 50%; background: var(--panel2); object-fit: cover; }
   .pcard .ph a { color: var(--text); font-weight: 700; text-decoration: none; }
-  .pcard .ph a:hover { color: var(--accent); }
+  .pcard .ph a:hover { color: var(--green); }
   .mrow { padding: 8px 0; border-top: 1px solid #1c2420; }
   .mrow .ml { font-size: 12px; color: var(--muted); margin-bottom: 5px; }
   .alts { display: flex; gap: 6px; flex-wrap: wrap; }
   .alt { background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; padding: 5px 10px; cursor: pointer;
     font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; line-height: 1.15; }
   .alt small { display: block; font-weight: 500; font-size: 10px; color: var(--muted); }
-  .alt:hover { border-color: var(--accent); }
+  .alt:hover { border-color: var(--green); }
   .alt.full { border-color: #1f6b3d; } .alt.full small { color: var(--green); }
   .alt.near { border-style: dashed; border-color: #7a5d12; } .alt.near small { color: var(--amber); }
-  .alt.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); } .alt.on small { color: var(--accent-ink); }
+  .alt.on { background: var(--green); color: #06210f; border-color: var(--green); } .alt.on small { color: #06210f; }
   .altrow td { background: var(--panel2); padding: 12px 14px; white-space: normal; }
   .qbtn { display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); background: var(--bg);
     border-radius: 6px; cursor: pointer; margin-left: 4px; color: var(--text); vertical-align: middle; }
   .addbtn { width: 22px; height: 22px; font-size: 13px; font-weight: 800; padding: 0; }
-  .addbtn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  .addbtn:hover { border-color: var(--accent-dim); }
+  .addbtn.on { background: var(--green); color: #06210f; border-color: var(--green); }
+  .addbtn:hover { border-color: var(--green-dim); }
   .altbtn { padding: 3px 8px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-  .altbtn.on { border-color: var(--accent); color: var(--accent); }
-  .altbtn:hover { border-color: var(--accent-dim); }
+  .altbtn.on { border-color: var(--green); color: var(--green); }
+  .altbtn:hover { border-color: var(--green-dim); }
   .ev { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
   .ev.g { background: #123524; color: var(--green); } .ev.r { background: #4a1d1d; color: var(--red); }
   .ev.n { background: var(--panel2); color: var(--muted); }
@@ -280,11 +279,11 @@
   .slip-f input { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; width: 80px; }
   .bignum { font-size: 24px; font-weight: 800; }
   #slipBar { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 14;
-    display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--accent); color: var(--accent-ink);
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--green); color: #06210f;
     border: 0; border-radius: 14px; padding: 13px 16px; font-weight: 700; font-size: 15px; cursor: pointer;
     box-shadow: 0 8px 28px rgba(0,0,0,.55); text-align: left; }
   #slipBar small { font-weight: 600; opacity: .8; display: block; font-size: 12px; }
-  #slipBar .go { background: var(--accent-ink); color: var(--accent); border-radius: 9px; padding: 7px 13px; white-space: nowrap; }
+  #slipBar .go { background: #06210f; color: var(--green); border-radius: 9px; padding: 7px 13px; white-space: nowrap; }
   #slipBar[hidden] { display: none !important; }
   body.has-bar main { padding-bottom: 110px; }
   .slip-keep { display: none; width: 100%; margin-top: 12px; padding: 12px; font-size: 15px; }
@@ -332,8 +331,8 @@
     cursor: pointer; transition: background .15s; }
   .toggle .track::before { content: ''; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px;
     background: var(--muted); border-radius: 50%; transition: transform .15s; }
-  .toggle input:checked + .track { background: var(--accent-dim); border-color: var(--accent); }
-  .toggle input:checked + .track::before { transform: translateX(18px); background: var(--accent); }
+  .toggle input:checked + .track { background: var(--green-dim); border-color: var(--green); }
+  .toggle input:checked + .track::before { transform: translateX(18px); background: var(--green); }
 
   .ava { display: inline-flex; align-items: center; justify-content: center; background: var(--panel2); color: var(--muted);
     font-weight: 700; flex: none; letter-spacing: .02em; }
@@ -381,7 +380,6 @@ window.onerror = function (msg, src, line) {
   <div id="sportBanner"></div>
   <div class="games" id="games"></div>
   <div class="note" style="margin:-4px 0 10px">Click a game to see every player's alt lines and build a parlay.</div>
-  <div id="bestBet"></div>
 
   <div class="pills" id="markets"></div>
   <div class="note" style="margin:-4px 0 10px">Tap a prop to toggle it on or off — pick just one or several at once. Tap <b>All props</b> to clear the picks and show everything.</div>
@@ -593,16 +591,6 @@ function derive(p) {
   return { line, r, avg: last10.length ? last10.reduce((a, b) => a + b, 0) / last10.length : null,
            pct: r[F.win].pct };
 }
-// Same shape as derive()'s window rates, but always the Over side regardless of the global F.side
-// toggle -- used by the Best Bet card, which is an inherently Over-framed pick (same reasoning as
-// signalsAligned's zone_edge: it's about a player clearing a line, not the board's current toggle).
-function deriveOver(p) {
-  const line = lineFor(p), v = p.log.map(x => x[3]);
-  const season = p.log.filter(x => x[0] === board.season).map(x => x[3]);
-  const h2h = p.log.filter(x => x[2] === p.opp).map(x => x[3]);
-  return { line, l5: rate(v.slice(-5), line, 'over'), l10: rate(v.slice(-10), line, 'over'),
-           season: rate(season, line, 'over'), h2h: rate(h2h, line, 'over') };
-}
 // Flags a prop where several independent numbers already on the page happen to agree -- not a new
 // model or a prediction, just a "these signals line up" marker. Over-only: zone_edge is built from his
 // OWN targets landing where the defense is weak, which is inherently an Over-supporting read.
@@ -612,79 +600,6 @@ function signalsAligned(p, d) {
   if (!l10 || l10.n < 5 || l10.pct < 70) return false;
   if (p.ev_over != null && p.ev_over <= 0) return false;
   return true;
-}
-// Ranks every healthy player's Over prop in one game by hit-rate CONSISTENCY (the average of his L5/L10/
-// season rates, not just one window -- a single hot streak shouldn't top this) with Zone Edge as the
-// tiebreaker, and surfaces the single best one. Injured players (any status, not just Out) are excluded
-// outright rather than derated, since "healthy" is a binary Simon asked for, not a spectrum.
-function bestBetHtml(gameId) {
-  if (!gameId) return '';
-  const g = board.games.find(x => x.id === gameId);
-  if (!g) return '';
-  const scored = board.props
-    // 1Q/Q1/Longest markets have naturally trivial lines (e.g. "1+ yard in the first quarter") that
-    // clear almost by definition -- they'd dominate a pure hit-rate ranking without being a meaningful
-    // pick. any_td is excluded for the opposite reason (Simon's call): touchdowns are opportunity/
-    // red-zone-dependent and volatile game to game even when recent games happen to look consistent,
-    // unlike accumulating yards or catches -- a fixed 0.5 line hides that volatility behind a clean %.
-    .filter(p => p.game === gameId && !p.inj && p.market !== 'any_td' && !/^(1Q|Q1|Longest)/.test(p.label))
-    .map(p => ({ p, o: deriveOver(p) }))
-    .filter(({ o }) => o.l10.n >= 5)
-    .map(({ p, o }) => {
-      const windows = [o.l5, o.l10, o.season].filter(w => w.n >= 2);
-      const consistency = windows.length ? windows.reduce((s, w) => s + w.pct, 0) / windows.length : 0;
-      // rank 1 = defense allows the most = best matchup for the Over -> matchupPct 100; rank n -> 0.
-      // Same direction gradeOf() already uses elsewhere, just as a continuous score instead of a letter.
-      const rn = poolN(p.pos, p.market);
-      const matchupPct = p.opp_rank != null ? (1 - (p.opp_rank - 1) / Math.max(1, rn - 1)) * 100 : 50;
-      // Hit rate alone rewards trivially-easy lines regardless of matchup (a backup DB's 1.5-tackle
-      // line clears often on habit, not on this week's matchup) -- matchup and zone edge (when it
-      // applies) are weighted in directly, not just shown as after-the-fact context.
-      const score = consistency * 0.55 + matchupPct * 0.3 + (p.zone_edge ?? matchupPct) * 0.15;
-      return { p, o, consistency, matchupPct, score };
-    });
-  if (!scored.length) return '';
-  scored.sort((a, b) => b.score - a.score);
-  const { p, o, consistency } = scored[0];
-  const rk = p.opp_rank, rn = poolN(p.pos, p.market), gr = gradeOf(rk, 'over', rn);
-  const aligned = p.zone_edge != null && p.zone_edge >= 65 && o.l10.n >= 5 && o.l10.pct >= 70
-    && (p.ev_over == null || p.ev_over > 0);
-  const bars = p.log.slice(-10).map(x => {
-    const hit = x[3] > o.line;
-    const max = Math.max(...p.log.slice(-10).map(y => y[3]), o.line, 1);
-    return `<div style="flex:1;background:${hit ? 'var(--green)' : 'var(--red)'};height:${Math.max(8, Math.round(x[3] / max * 100))}%;border-radius:2px"></div>`;
-  }).join('');
-  const winCell = (label, w) => `<div style="text-align:center"><div style="font-size:16px;font-weight:800;color:${w.n ? 'var(--green)' : 'var(--muted)'}">${w.n ? Math.round(w.pct) + '%' : '–'}</div><div style="font-size:10px;color:var(--muted)">${label} &middot; ${w.hits}/${w.n}</div></div>`;
-  const onCur = inSlip(p, o.line, 'over');
-  return `<div class="chartcard" style="margin:-2px 0 14px">
-    <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.04em;margin-bottom:10px">${aligned ? 'HIGH-CONFIDENCE PICK' : 'BEST BET'} &middot; THIS GAME</div>
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-      ${pimg(p.player, p.img, 44)}
-      <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">${esc(p.player)}</div>
-      <div style="font-size:12px;color:var(--muted)">${esc(p.pos)} &middot; ${esc(p.team)} &middot; ${p.home ? 'vs' : '@'} ${esc(p.opp)}</div></div>
-      <span style="background:#123524;color:var(--green);font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px">ACTIVE</span>
-    </div>
-    ${aligned ? `<div style="margin-bottom:12px"><span class="signal">Signals aligned</span></div>` : ''}
-    <div style="font-size:19px;font-weight:800;margin-bottom:12px">${esc(p.label)} &middot; Over ${o.line}</div>
-    <div style="background:var(--panel2);border-radius:8px;padding:10px 12px;margin-bottom:12px">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:8px">HIT RATE BY WINDOW</div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
-        ${winCell('L5', o.l5)}${winCell('L10', o.l10)}${winCell('Season', o.season)}${winCell('vs Opp', o.h2h)}
-      </div>
-    </div>
-    <div style="display:flex;align-items:flex-end;gap:3px;height:44px;margin-bottom:14px">${bars}</div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
-      <div style="text-align:center;background:var(--panel2);border-radius:6px;padding:6px 2px">
-        <div style="font-size:10px;color:var(--muted)">Matchup</div><div style="font-size:13px;font-weight:700;color:${gr ? 'var(--green)' : 'var(--muted)'}">${gr ? gr.L + ' &middot; ' + ord(rk) : '–'}</div></div>
-      <div style="text-align:center;background:var(--panel2);border-radius:6px;padding:6px 2px">
-        <div style="font-size:10px;color:var(--muted)">Zone edge</div><div style="font-size:13px;font-weight:700;color:${p.zone_edge != null ? 'var(--blue)' : 'var(--muted)'}">${p.zone_edge != null ? Math.round(p.zone_edge) + '%' : '–'}</div></div>
-      <div style="text-align:center;background:var(--panel2);border-radius:6px;padding:6px 2px">
-        <div style="font-size:10px;color:var(--muted)">Real book EV</div><div style="font-size:13px;font-weight:700;color:${p.ev_over != null ? (p.ev_over >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted)'}">${p.ev_over != null ? (p.ev_over >= 0 ? '+' : '') + p.ev_over.toFixed(0) + '%' : '–'}</div></div>
-    </div>
-    <p style="font-size:12px;color:var(--muted);line-height:1.5;margin:0 0 14px">Averaging ${Math.round(consistency)}% across his recent hit-rate windows${gr ? `, against a defense grading ${gr.L} here` : ''}${p.zone_edge != null ? `, with ${Math.round(p.zone_edge)}% of his targets in zones where ${esc(p.opp)} is weak` : ''}.</p>
-    <button class="qbtn addbtn ${onCur ? 'on' : ''}" style="width:100%;padding:10px;font-weight:700;font-size:13px" data-id="${esc(p.id)}" data-t="${o.line}" data-side="over" data-label="Add to parlay" title="${onCur ? 'Remove from parlay slip' : `Add Over ${o.line} to your parlay`}">${onCur ? '✓' : 'Add to parlay'}</button>
-    <div style="font-size:11px;color:var(--muted);margin-top:10px">Ranked #1 of ${scored.length} eligible props in this game &middot; describes recent results, not a prediction or guarantee.</div>
-  </div>`;
 }
 
 // ---- rendering --------------------------------------------------------
@@ -834,7 +749,6 @@ function render() {
   $('#tierOnlyWrap').hidden = !activeQ1(); $('#clearGame').hidden = !F.game; $('#openParlay').hidden = !F.game;
   document.querySelectorAll('#markets .pill').forEach(el => el.classList.toggle('on', el.dataset.k === 'all' ? F.markets.size === 0 : F.markets.has(el.dataset.k)));
   document.querySelectorAll('#games .game').forEach(el => el.classList.toggle('on', el.dataset.id === F.game));
-  $('#bestBet').innerHTML = bestBetHtml(F.game);
   const rows = filtered(), CAP = 300, shown = rows.slice(0, CAP);
   const gmap = Object.fromEntries(board.games.map(g => [g.id, g]));
   $('#tbody').innerHTML = shown.length ? shown.map(({ p, d }) => {
@@ -867,7 +781,7 @@ function render() {
     const clearedText = miss ? `all but one of his last ${win}` : `each of his last ${win}`;
     const altHtml = useReal ? realAltHtml(p) : chips.length
       ? `<div class="alts">${chips.map(c => `<button class="alt ${inSlip(p, c.t, 'over') ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(p.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div>`
-      : `<div class="muted" style="font-size:12px">No alt line cleared in ${clearedText} games. <a href="#/g/${esc(p.game)}" style="color:var(--accent)">Open the full game page</a> to see his raw numbers.</div>`;
+      : `<div class="muted" style="font-size:12px">No alt line cleared in ${clearedText} games. <a href="#/g/${esc(p.game)}" style="color:var(--green)">Open the full game page</a> to see his raw numbers.</div>`;
     const capText = useReal ? 'Real prices from sportsbooks — click one to add it at that price' : 'Alt lines are shown as Over — pick a lower number for an easier hit';
     return row + `<tr class="altrow"><td colspan="${cols().length}">
       <div class="muted" style="font-size:12px;margin-bottom:6px">${capText}${!useReal && chips.length ? `, cleared in ${clearedText} games` : ''}. Click one to add it (swaps out ${esc(p.label)} ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} if that's in your slip).</div>
@@ -880,7 +794,7 @@ function render() {
     if (e.target.classList.contains('lineinput')) return;
     location.hash = '#/p/' + encodeURIComponent(tr.dataset.id);
   });
-  document.querySelectorAll('#tbody .addbtn, #bestBet .addbtn').forEach(el => el.onclick = e => {
+  document.querySelectorAll('#tbody .addbtn').forEach(el => el.onclick = e => {
     e.stopPropagation();
     const p = board.props.find(x => x.id === el.dataset.id);
     const t = +el.dataset.t, addSide = el.dataset.side;
@@ -993,7 +907,7 @@ function sharpCard(p) {
   const top = board.props.find(x => x.game === p.game && x.team === p.team && x.market === p.market && x.tier);
   let body;
   if (!ti) {
-    body = `<div class="muted">The sharpness model scores only each team's top ${kind}${top ? ` (for ${esc(p.team)} this game: <a href="#/p/${encodeURIComponent(top.id)}" style="color:var(--accent)">${esc(top.player)}</a>)` : ''}.
+    body = `<div class="muted">The sharpness model scores only each team's top ${kind}${top ? ` (for ${esc(p.team)} this game: <a href="#/p/${encodeURIComponent(top.id)}" style="color:var(--green)">${esc(top.player)}</a>)` : ''}.
       ${esc(p.player)} isn't scored, so use the hit-rate windows above.</div>`;
   } else if (ti.tier === 'OUT') {
     body = `<div class="muted"><b class="r">Ruled out.</b> Latest injury report lists him ${esc(ti.status)}, so the model skips him.</div>`;
@@ -1574,13 +1488,13 @@ function refreshChips() {
 }
 // re-style the board's + and player-page's + button in place, same reason as refreshChips
 function refreshBoardAddButtons() {
-  document.querySelectorAll('#tbody .addbtn, #pvMain .addbtn, #bestBet .addbtn').forEach(el => {
+  document.querySelectorAll('#tbody .addbtn, #pvMain .addbtn').forEach(el => {
     const p = board.props.find(x => x.id === el.dataset.id);
     if (!p) return;
     const t = +el.dataset.t, side = el.dataset.side;
     const on = inSlip(p, t, side);
     el.classList.toggle('on', on);
-    el.textContent = on ? '✓' : (el.dataset.label || '+');
+    el.textContent = on ? '✓' : '+';
     el.title = on ? 'Remove from parlay slip' : `Add ${side === 'over' ? 'Over' : 'Under'} ${t} to your parlay`;
   });
 }
