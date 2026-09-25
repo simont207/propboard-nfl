@@ -146,6 +146,20 @@
   .gbadge .t { font-size: 12px; color: var(--muted); text-align: center; }
   .chartcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 10px;
     margin-top: 14px; }
+  .zonewrap { display: flex; gap: 14px; flex-wrap: wrap; }
+  .zonegrid { flex: 1 1 240px; max-width: 320px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .zonerow { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .zonecell { border: none; border-right: 1px solid var(--bg); border-bottom: 1px solid var(--bg); height: 54px;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; background: var(--panel2); padding: 0; }
+  .zonecell.empty { color: var(--muted); font-size: 11px; cursor: default; }
+  .zonecell.weak { background: #173404; } .zonecell.neutral { background: #3d2f0e; } .zonecell.tough { background: #3a1414; }
+  .zonecell.sel { box-shadow: inset 0 0 0 2px var(--green); }
+  .zonecell .dot { border-radius: 50%; background: var(--panel); display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: var(--text); border: 2px solid var(--line); }
+  .zonecell.weak .dot { border-color: var(--green); color: var(--green); }
+  .zonecell.neutral .dot { border-color: var(--amber); color: var(--amber); }
+  .zonecell.tough .dot { border-color: var(--red); color: var(--red); }
+  .zonepanel { flex: 1 1 180px; background: var(--panel2); border-radius: 8px; padding: 10px 12px; }
   .chartbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
   .wins { display: flex; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px;
     padding: 4px; margin-top: 8px; overflow-x: auto; }
@@ -816,7 +830,7 @@ function renderTop() {
 }
 
 // ---- player page ------------------------------------------------------
-const PV = { win: 'l10', f: {}, key: null };
+const PV = { win: 'l10', f: {}, key: null, zone: null };
 const GRADES = ['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','F'];
 const gcls = L => 'g' + (L[0] === 'F' ? 'D' : L[0]);
 function poolN(pos, market) { return board?.dvp?.[`${pos}|${market}`]?.n || 32; }
@@ -861,7 +875,7 @@ function route() {
   if (wasBoard) route.y = window.scrollY;
   if (p) {
     showView('player');
-    if (PV.key !== p.pid + p.game) { PV.f = {}; PV.key = p.pid + p.game; window.scrollTo(0, 0); }
+    if (PV.key !== p.pid + p.game) { PV.f = {}; PV.zone = null; PV.key = p.pid + p.game; window.scrollTo(0, 0); }
     renderPlayer(p);
   } else {
     showView('game');
@@ -1072,6 +1086,19 @@ function renderPlayer(p) {
         }).join('')}</div></div>`;
     })()}
     ${(() => {
+      const fit = board.zone_fit && board.zone_fit[`${p.team}|${p.opp}`];
+      if (!fit || fit.length < 2) return '';
+      const max = Math.max(...fit.map(f => f[1]));
+      return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
+        <b>Zone matchup fit</b> <span class="muted" style="font-size:12px">— % of each player's own targets that land in zones where ${esc(p.opp)} is weak this week. Higher = his own target profile lines up better with this matchup.</span>
+        <div style="margin-top:10px">${fit.map(([name, val]) => {
+          const mine = name === p.player;
+          return `<div class="wlrow"><div class="wlname ${mine ? 'on' : ''}">${esc(name)}</div>
+            <div class="wltrack"><div class="wlfill ${mine ? 'on' : ''}" style="width:${max ? Math.round(val / max * 100) : 0}%"></div></div>
+            <div class="wlval">${val}%</div></div>`;
+        }).join('')}</div></div>`;
+    })()}
+    ${(() => {
       const list = board.roster_activity && board.roster_activity[p.team];
       if (!list || !list.length) return '';
       return `<div class="chartcard" style="margin-top:14px;padding:14px 16px">
@@ -1088,6 +1115,7 @@ function renderPlayer(p) {
             </div></div>`;
         }).join('')}</div></div>`;
     })()}
+    ${zoneChartHtml(p)}
 
     <div class="chartcard">
       <div class="chartbar"><b>${p.src === 'fixed' && line === 4.5 ? esc(p.label) + (side === 'over' ? '' : ' · misses (4 or fewer)') : esc(p.label) + ' · ' + lineText(p, line, side)}</b>
@@ -1131,6 +1159,7 @@ function renderPlayer(p) {
 
   document.querySelectorAll('#pvMain .tabs .pill').forEach(el => el.onclick = () => { location.hash = '#/p/' + encodeURIComponent(el.dataset.id); });
   document.querySelectorAll('#pvMain .win').forEach(el => el.onclick = () => { PV.win = el.dataset.w; route(); });
+  document.querySelectorAll('#pvMain .zonecell[data-zone]').forEach(el => el.onclick = () => { PV.zone = el.dataset.zone; route(); });
   document.querySelectorAll('#pvMain .chip[data-f]').forEach(el => el.onclick = () => {
     const k = el.dataset.f; PV.f[k] = !PV.f[k];
     if (k === 'thi' && PV.f.thi) PV.f.tlo = false; if (k === 'tlo' && PV.f.tlo) PV.f.thi = false;
@@ -1253,6 +1282,56 @@ function bestAltChips(p) {
   }
   const [win, miss] = ALT_TIERS[ALT_TIERS.length - 1];
   return { chips: [], win, miss };
+}
+// NFL only — target/catch splits by field zone, from real play-by-play (board.zones_player/zones_def).
+// Not available for other sports' boards, so every lookup here fails closed (returns '') when absent.
+const ZONE_ROWS = [['deep', 'Deep', '20+ yds'], ['mid', 'Mid', '10-20 yds'], ['short', 'Short', '0-10 yds'], ['behind', 'Behind LOS', 'negative']];
+const ZONE_COLS = ['left', 'middle', 'right'];
+function zoneLabel(z) {
+  const [depth, side] = z.split('_');
+  const row = ZONE_ROWS.find(r => r[0] === depth);
+  return { title: `${row[1]} ${side === 'left' ? 'left' : side === 'right' ? 'right' : 'middle'}`, sub: row[2] };
+}
+function zoneTier(rank) {          // rank 1 = highest catch rate allowed = weakest defense there
+  if (rank <= 10) return 'weak';
+  if (rank <= 22) return 'neutral';
+  return 'tough';
+}
+function zoneChartHtml(p) {
+  const zp = board.zones_player && board.zones_player[p.pid];
+  const zd = board.zones_def && board.zones_def[p.opp];
+  if (!zp || !zd || !Object.keys(zp.zones).length) return '';
+  const maxPct = Math.max(...Object.values(zp.zones).map(z => z.pct));
+  const favorable = Object.entries(zp.zones)
+    .filter(([z]) => zd[z] && zd[z].rank && zd[z].rank <= 10)
+    .reduce((s, [, v]) => s + v.pct, 0);
+  const sel = (PV.zone && zp.zones[PV.zone]) ? PV.zone
+    : Object.entries(zp.zones).sort((a, b) => b[1].pct - a[1].pct)[0][0];
+  const selZ = zp.zones[sel], selD = zd[sel], lbl = zoneLabel(sel);
+  const grid = ZONE_ROWS.map(([depth]) => `<div class="zonerow">${ZONE_COLS.map(side => {
+    const z = `${depth}_${side}`, pv = zp.zones[z], dv = zd[z];
+    if (!pv) return `<div class="zonecell empty">n/a</div>`;
+    const size = 16 + Math.round(pv.pct / maxPct * 30);
+    const tier = dv && dv.rank ? zoneTier(dv.rank) : '';
+    return `<button class="zonecell ${tier} ${z === sel ? 'sel' : ''}" data-zone="${z}">
+      <span class="dot" style="width:${size}px;height:${size}px">${pv.pct}%</span></button>`;
+  }).join('')}</div>`).join('');
+  return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
+    <b>Receiving zone chart</b> <span class="muted" style="font-size:12px">— ${Math.round(favorable)}% of his targets come in zones where ${esc(p.opp)} is a weak matchup. Tap a zone for details.</span>
+    <div class="zonewrap" style="margin-top:10px">
+      <div class="zonegrid">${grid}</div>
+      <div class="zonepanel">
+        <div class="muted" style="font-size:12px">${esc(lbl.title)} &middot; ${esc(lbl.sub)}</div>
+        <table style="width:100%;font-size:13px;margin-top:6px;border-collapse:collapse">
+          <tr><td class="muted" style="padding:4px 0">% of targets</td><td style="text-align:right;font-weight:600">${selZ.pct}%</td></tr>
+          <tr><td class="muted" style="padding:4px 0">His catch rate</td><td style="text-align:right;font-weight:600">${selZ.catch_rate != null ? selZ.catch_rate + '%' : '–'}</td></tr>
+          <tr><td class="muted" style="padding:8px 0 4px;border-top:1px solid var(--line)">${esc(p.opp)} catch rate allowed</td><td style="text-align:right;font-weight:600;padding:8px 0 4px;border-top:1px solid var(--line)">${selD && selD.catch_rate != null ? selD.catch_rate + '%' : '–'}</td></tr>
+          <tr><td class="muted" style="padding:4px 0">Rank by catch rate allowed</td><td style="text-align:right;font-weight:600">${selD && selD.rank ? ord(selD.rank) + ' of 32' : '–'}</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="note">Circle size = share of his targets in that zone. Color = ${esc(p.opp)}'s catch rate allowed there (green = weak, red = tough). Route-type splits (curl/slant/out) aren't shown — that breakdown needs charting data that isn't freely available.</div>
+  </div>`;
 }
 // Real alt-line prices from SportsGameOdds (NFL only, after a pull) — shown instead of the
 // history-based ladder whenever we have them, since a real bettable price beats a guess from

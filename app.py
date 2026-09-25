@@ -111,13 +111,30 @@ def download(url, dest, max_age_hours):
         return dest.exists()
 
 
+ZONES = ["deep_left", "deep_middle", "deep_right", "mid_left", "mid_middle", "mid_right",
+         "short_left", "short_middle", "short_right", "behind_left", "behind_middle", "behind_right"]
+
+
+def _zone_of(air_yards):
+    if air_yards < 0:
+        return "behind"
+    if air_yards < 10:
+        return "short"
+    if air_yards < 20:
+        return "mid"
+    return "deep"
+
+
 def _build_q1_tables():
-    """Reduce big play-by-play files to small per-game player tables (cached, big file deleted):
-    first-quarter yards/TDs (for the Q1 markets) and longest-play (no quarter restriction — a game's
-    single best pass/rush/catch, wherever in the game it happened)."""
+    """Reduce big play-by-play files to small per-game/per-player tables (cached, big file deleted):
+    first-quarter yards/TDs (Q1 markets), longest-play (a game's single best pass/rush/catch, any
+    quarter), and target/catch counts by field zone (depth bucket x left/middle/right — the receiving
+    zone chart on a player's page)."""
     for yr, age in ((SEASON - 1, 24 * 30), (SEASON, 3)):
         small, small_def = DATA / f"q1_{yr}.parquet", DATA / f"q1def_{yr}.parquet"
-        fresh = all(f.exists() and time.time() - f.stat().st_mtime < age * 3600 for f in (small, small_def))
+        zones, zones_def = DATA / f"zones_{yr}.parquet", DATA / f"zonesdef_{yr}.parquet"
+        fresh = all(f.exists() and time.time() - f.stat().st_mtime < age * 3600
+                    for f in (small, small_def, zones, zones_def))
         if fresh:
             continue
         big = DATA / f"pbp_{yr}.parquet"
@@ -126,7 +143,8 @@ def _build_q1_tables():
         p = pd.read_parquet(big, columns=[
             "game_id", "qtr", "play_type", "epa", "defteam",
             "receiver_player_id", "receiving_yards", "rusher_player_id", "rushing_yards",
-            "passer_player_id", "passing_yards", "pass_touchdown", "rush_touchdown", "td_player_id"])
+            "passer_player_id", "passing_yards", "pass_touchdown", "rush_touchdown", "td_player_id",
+            "pass_location", "air_yards", "complete_pass", "pass_attempt"])
 
         # longest single play this game, any quarter (a sack/no-gain doesn't count as anyone's "longest")
         long_rec = (p[p.receiving_yards > 0].groupby(["game_id", "receiver_player_id"]).receiving_yards.max()
@@ -156,6 +174,15 @@ def _build_q1_tables():
         d = q1p[q1p.epa.notna() & q1p.defteam.notna() & q1p.play_type.isin(["pass", "run"])]
         (d.groupby(["defteam", "play_type"]).epa.agg(["sum", "count"]).reset_index()
          .to_parquet(small_def))
+
+        tgt = p[(p.pass_attempt == 1)].dropna(subset=["receiver_player_id", "pass_location", "air_yards"]).copy()
+        tgt["zone"] = tgt.air_yards.apply(_zone_of) + "_" + tgt.pass_location
+        (tgt.groupby(["receiver_player_id", "zone"])
+         .agg(targets=("complete_pass", "size"), catches=("complete_pass", "sum"))
+         .reset_index().rename(columns={"receiver_player_id": "player_id"}).to_parquet(zones))
+        (tgt.groupby(["defteam", "zone"])
+         .agg(targets=("complete_pass", "size"), catches=("complete_pass", "sum"))
+         .reset_index().to_parquet(zones_def))
         big.unlink()
 
 
@@ -172,6 +199,41 @@ def load_q1():
     cols = ["game_id", "player_id", "q1_rec", "q1_rush", "q1_pass", "q1_any_td",
             "long_rec", "long_rush", "long_pass"]
     return q1 if q1 is not None else pd.DataFrame(columns=cols)
+
+
+def load_zones():
+    """Target/catch counts by field zone (depth bucket x left/middle/right), for a player and for each
+    defense allowing them — the receiving zone chart on a player's page. Rank 1 = highest catch rate
+    allowed in that zone = the weakest defense there, matching the site's existing "1st = allows the
+    most" convention elsewhere."""
+    _build_q1_tables()
+    zp, zd = _read_all("zones"), _read_all("zonesdef")
+    if zp is None or zd is None:
+        return {}, {}
+    zp = zp.groupby(["player_id", "zone"])[["targets", "catches"]].sum().reset_index()
+    zd = zd.groupby(["defteam", "zone"])[["targets", "catches"]].sum().reset_index()
+
+    zones_player = {}
+    for pid, grp in zp.groupby("player_id"):
+        total = int(grp.targets.sum())
+        if total < 8:
+            continue
+        zones_player[pid] = {"total": total, "zones": {
+            r.zone: {"targets": int(r.targets), "pct": round(r.targets / total * 100, 1),
+                      "catches": int(r.catches),
+                      "catch_rate": round(r.catches / r.targets * 100) if r.targets else None}
+            for r in grp.itertuples() if r.zone in ZONES}}
+
+    zones_def = {team: {r.zone: {"targets": int(r.targets), "catches": int(r.catches),
+                                  "catch_rate": round(r.catches / r.targets * 100) if r.targets else None}
+                         for r in grp.itertuples() if r.zone in ZONES}
+                 for team, grp in zd.groupby("defteam")}
+    for z in ZONES:
+        rates = {t: zones_def[t][z]["catch_rate"] for t in zones_def
+                 if z in zones_def[t] and zones_def[t][z]["catch_rate"] is not None}
+        for i, t in enumerate(sorted(rates, key=lambda t: -rates[t]), 1):
+            zones_def[t][z]["rank"] = i
+    return zones_player, zones_def
 
 
 def load_q1_def():
@@ -607,6 +669,32 @@ def usage_shares(cur, latest, games):
     return out
 
 
+def zone_fit(games, latest, zones_player, zones_def):
+    """Rank each team's WR/TE/RBs by how much of their OWN target share lands in zones where this
+    week's specific opponent is weak — the zone chart alone only answers "how does this one player fit,"
+    not "which of these guys should I even be looking at" without clicking through every player."""
+    out = {}
+    for g in games:
+        for team, opp in ((g["home"], g["away"]), (g["away"], g["home"])):
+            t, o = ESPN_TO_NFLVERSE.get(team, team), ESPN_TO_NFLVERSE.get(opp, opp)
+            zd = zones_def.get(o)
+            if not zd:
+                continue
+            pool = latest[(latest.team == t) & latest.position.isin(["WR", "TE", "RB"])]
+            vals = []
+            for pid, r in pool.iterrows():
+                zp = zones_player.get(pid)
+                if not zp or zp["total"] < 8:
+                    continue
+                fav = sum(v["pct"] for z, v in zp["zones"].items() if zd.get(z, {}).get("rank", 99) <= 10)
+                vals.append((r.player_display_name, round(fav, 1)))
+            if len(vals) < 2:
+                continue
+            vals.sort(key=lambda x: -x[1])
+            out[f"{t}|{o}"] = vals
+    return out
+
+
 def game_entry(sched, r, mkey):
     """[season, week, opp, value, date, was_home, fav_margin, total] for one past game."""
     day, home_team, spread, total = sched.get(r.game_id, (None, None, None, None))
@@ -825,6 +913,8 @@ def build_board():
     latest = cur.sort_values("week").groupby("player_id").tail(1).set_index("player_id")
     usage = usage_shares(cur, latest, games)
     roster_act = roster_activity(inj, inj_week, cur, load_snap_avg())
+    zones_player, zones_def = load_zones()
+    zf = zone_fit(games, latest, zones_player, zones_def)
 
     rows = []
     for g in games:
@@ -889,7 +979,7 @@ def build_board():
 
     return {
         "season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent, "usage": usage,
-        "roster_activity": roster_act,
+        "roster_activity": roster_act, "zones_player": zones_player, "zones_def": zones_def, "zone_fit": zf,
         "has_key": bool(load_config().get("odds_key")),
         "odds_pulled": odds["pulled"], "odds_remaining": odds["remaining"],
         "has_sgo_key": bool(load_sgo_key()), "sgo_pulled": sgo["pulled"],
