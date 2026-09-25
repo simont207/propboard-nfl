@@ -85,8 +85,17 @@
   .hit small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
   .g { color: var(--green); } .r { color: var(--red); } .m { color: var(--text); } .n { color: var(--muted); }
   .rank { font-variant-numeric: tabular-nums; }
-  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+  .empty .ic { font-size: 26px; margin-bottom: 8px; opacity: .6; }
+  .empty .msg { font-size: 14px; color: var(--text); font-weight: 600; margin-bottom: 4px; }
+  .empty .sub { font-size: 13px; }
   .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .skel { background: linear-gradient(90deg, var(--panel2) 25%, var(--line) 50%, var(--panel2) 75%);
+    background-size: 200% 100%; animation: skelpulse 1.4s ease-in-out infinite; border-radius: 6px; }
+  @keyframes skelpulse { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .game.skel-card { cursor: default; }
+  .game.skel-card .skel { height: 12px; margin-bottom: 6px; } .game.skel-card .skel:last-child { width: 60%; margin-bottom: 0; }
+  .skel-row td { padding: 10px; } .skel-row .skel { height: 14px; width: 70%; }
 
   .small { font-size: 12px; }
   .search { position: relative; flex: 1 1 280px; max-width: 560px; }
@@ -340,6 +349,10 @@
     font-weight: 700; border-radius: 6px; padding: 0 6px; flex: none; }
   .disc { max-width: 1600px; margin: 0 auto; padding: 0 20px 40px; color: var(--muted); font-size: 12px; line-height: 1.6; }
   .disc a { color: var(--muted); }
+  .howworks { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; margin-bottom: 14px; }
+  .howworks summary { cursor: pointer; color: var(--text); font-weight: 600; font-size: 13px; padding: 4px 0; }
+  .howworks p { margin: 8px 0 0; } .howworks p:first-of-type { margin-top: 10px; }
+  .howworks b { color: var(--text); }
   .public #btnRefresh, .public #btnLines, .public #pvLines, .public #modal { display: none !important; }
   #errbar { position: fixed; top: 0; left: 0; right: 0; z-index: 60; background: #5b1d1d; color: #ffd7d7; padding: 10px 14px;
     font-size: 12px; line-height: 1.4; cursor: pointer; }
@@ -417,6 +430,13 @@ window.onerror = function (msg, src, line) {
 <div id="gameView" hidden></div>
 </main>
 <footer class="disc">
+  <details class="howworks">
+    <summary>How the numbers on this site work</summary>
+    <p><b>Hit rate</b> — the % of a player's recent games where the actual stat cleared the line shown (e.g. 8/10 means he went over in 8 of his last 10 games).</p>
+    <p><b>Matchup rank</b> — how the opponent's defense ranks (1st to 32nd/last) against that position. 1st means the defense allows the most to that position — the best matchup for the Over.</p>
+    <p><b>Zone Edge</b> (NFL receiving props only) — the % of a player's own targets that land in areas of the field where this week's specific opponent has allowed the highest catch rate.</p>
+    <p>All of these describe recent results, not predictions — see the note below.</p>
+  </details>
   <p>PropBoard is an independent stats tool. It is not affiliated with, endorsed by, or sponsored by the NFL, any team, ESPN, or any sportsbook.
     Team names, logos and player photos belong to their owners and are shown only to identify teams and players.</p>
   <p>Hit rates, matchup ranks and tiers describe past results. They are not predictions, guarantees or betting advice. Bet only what you can afford to lose.
@@ -523,9 +543,23 @@ async function load(url, opts) {
   if (!r.ok) throw new Error(j.error || 'Something went wrong');
   return j;
 }
+function showSkeleton() {
+  $('#games').innerHTML = Array.from({ length: 6 }, () =>
+    `<div class="game skel-card"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>`).join('');
+  $('#tbody').innerHTML = Array.from({ length: 8 }, () =>
+    `<tr class="skel-row">${cols().map(() => `<td><div class="skel"></div></td>`).join('')}</tr>`).join('');
+}
+function showLoadError(e) {
+  $('#sub').textContent = '';
+  $('#games').innerHTML = '';
+  $('#tbody').innerHTML = `<tr><td colspan="${cols().length}"><div class="empty">
+    <div class="ic">⚠</div><div class="msg">Couldn't load the board</div>
+    <div class="sub">${esc(e.message)} — try refreshing the page.</div></div></td></tr>`;
+}
 async function init() {
+  showSkeleton();
   try { setBoard(await load(PUBLIC ? 'board.json' : '/api/board')); }
-  catch (e) { $('#sub').textContent = 'Could not load data: ' + e.message; }
+  catch (e) { showLoadError(e); }
 }
 function switchSport(sport) {
   if (sport === SPORT) return;
@@ -556,8 +590,8 @@ function switchSport(sport) {
   location.hash = '#/';
   if (BOARDS[sport]) setBoard(BOARDS[sport]);
   else {
-    board = null; $('#sub').textContent = 'Loading…'; $('#games').innerHTML = ''; $('#tbody').innerHTML = '';
-    load(BOARD_URLS[sport]).then(setBoard).catch(e => { $('#sub').textContent = 'Could not load data: ' + e.message; });
+    board = null; $('#sub').textContent = 'Loading…'; showSkeleton();
+    load(BOARD_URLS[sport]).then(setBoard).catch(showLoadError);
   }
 }
 function setBoard(b) {
@@ -784,7 +818,9 @@ function render() {
     return row + `<tr class="altrow"><td colspan="${cols().length}">
       <div class="muted" style="font-size:12px;margin-bottom:6px">${capText}${!useReal && chips.length ? `, cleared in ${clearedText} games` : ''}. Click one to add it (swaps out ${esc(p.label)} ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} if that's in your slip).</div>
       ${altHtml}</td></tr>`;
-  }).join('') : `<tr><td colspan="${cols().length}" class="empty">No props match these filters.</td></tr>`;
+  }).join('') : `<tr><td colspan="${cols().length}"><div class="empty">
+    <div class="ic">🔍</div><div class="msg">No props match these filters</div>
+    <div class="sub">Try widening the min hit % or clearing a filter.</div></div></td></tr>`;
   $('#foot').textContent = `${rows.length} props` + (rows.length > CAP ? ` (showing top ${CAP} — narrow the filters to see the rest)` : '') +
     ` · *Opp rank = how many ${F.side === 'over' ? 'yards/stats' : 'stats'} the defense allows to that position${SPORT === 'nfl' ? ' over its last 17 games' : ' this season'} (1st = allows the most).` +
     (activeQ1() ? ' · Tiers (💎 ELITE ≥ .80, 🔥 STRONG ≥ .72, ⭐ LEAN ≥ .63) score each team\'s top WR / RB; click a player for the breakdown.' : '');
@@ -925,7 +961,7 @@ function sharpCard(p) {
 }
 
 function barChart(gs, line, side) {
-  if (!gs.length) return '<div class="empty">No games match these filters.</div>';
+  if (!gs.length) return '<div class="empty"><div class="ic">📊</div><div class="msg">No games match these filters</div><div class="sub">Try clearing a chart filter above.</div></div>';
   const Wd = 1000, Hd = 330, L = 50, T = 24, B = 48, avail = Wd - L - 10;
   const max = Math.max(...gs.map(x => x[3]), line, 1) * 1.08;
   const slot = Math.min(96, avail / gs.length), bw = Math.min(74, slot * 0.72);
@@ -1431,7 +1467,7 @@ function renderGame(g) {
         <div class="muted" style="font-size:12px">${esc(p.pos)} · ${esc(p.team)}</div></div></div>
         ${rows.map(({ p: q, chips, useReal }) => `<div class="mrow"><div class="ml">${q.market === 'q1_rec' ? 'Q1 receiving yards' : q.market === 'q1_rush' ? 'Q1 rushing yards' : esc(q.label)}${useReal ? ' <span class="muted" style="font-size:11px">· real prices</span>' : ''}</div>
           ${useReal ? realAltHtml(q) : `<div class="alts">${chips.map(c => `<button class="alt ${inSlip(q, c.t) ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(q.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div>`}</div>`).join('')}
-      </div>`).join('') || `<div class="empty" style="grid-column:1/-1">No alt lines cleared ${GV.miss ? 'in all but one of' : 'in every one of'} the ${winTxt} games. Try "all but one game" or a longer window.</div>`}</div>`;
+      </div>`).join('') || `<div class="empty" style="grid-column:1/-1"><div class="ic">🎟️</div><div class="msg">No alt lines cleared</div><div class="sub">${GV.miss ? 'in all but one of' : 'in every one of'} the ${winTxt} games. Try "all but one game" or a longer window.</div></div>`}</div>`;
   document.querySelectorAll('#gameView [data-m]').forEach(el => el.onclick = () => { GV.market = el.dataset.m; renderGame(g); });
   document.querySelectorAll('#gvTeam button').forEach(el => el.onclick = () => { GV.team = el.dataset.t; renderGame(g); });
   $('#gvWin').onchange = e => { GV.win = +e.target.value; renderGame(g); };
@@ -1515,7 +1551,7 @@ function legStats(l) {
   return { l5: rt(5), l10: rt(10) };
 }
 function emptySlipHtml() {
-  if (!board || !board.games.length) return '<div class="empty">Open a game and tap an alt line to add it.</div>';
+  if (!board || !board.games.length) return '<div class="empty"><div class="ic">🎫</div><div class="msg">Your slip is empty</div><div class="sub">Open a game and tap an alt line to add it.</div></div>';
   return `<div style="padding:16px"><b>Your parlay is empty.</b>
     <div class="muted" style="margin:4px 0 14px">Pick a game, then tap the alt lines you want to add.</div>
     ${board.games.map(g => `<button class="btn gopick" data-g="${esc(g.id)}">${esc(teamCode(g.away))} @ ${esc(teamCode(g.home))} <span class="muted">· ${fmtTime(g.date)}</span></button>`).join('')}</div>`;
