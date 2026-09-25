@@ -149,13 +149,13 @@
   .zonewrap { display: flex; gap: 14px; flex-wrap: wrap; }
   .zonegrid { flex: 1 1 240px; max-width: 320px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .zonerow { display: grid; grid-template-columns: repeat(3, 1fr); }
-  .zonecell { border: none; border-right: 1px solid var(--bg); border-bottom: 1px solid var(--bg); height: 54px;
+  .zonecell { border: none; border-right: 1px solid var(--bg); border-bottom: 1px solid var(--bg); height: 68px;
     display: flex; align-items: center; justify-content: center; cursor: pointer; background: var(--panel2); padding: 0; }
   .zonecell.empty { color: var(--muted); font-size: 11px; cursor: default; }
   .zonecell.weak { background: #173404; } .zonecell.neutral { background: #3d2f0e; } .zonecell.tough { background: #3a1414; }
   .zonecell.sel { box-shadow: inset 0 0 0 2px var(--green); }
   .zonecell .dot { border-radius: 50%; background: var(--panel); display: flex; align-items: center; justify-content: center;
-    font-size: 10px; font-weight: 700; color: var(--text); border: 2px solid var(--line); }
+    font-size: 13px; font-weight: 700; color: var(--text); border: 2px solid var(--line); }
   .zonecell.weak .dot { border-color: var(--green); color: var(--green); }
   .zonecell.neutral .dot { border-color: var(--amber); color: var(--amber); }
   .zonecell.tough .dot { border-color: var(--red); color: var(--red); }
@@ -1311,10 +1311,10 @@ function zoneChartHtml(p) {
   const grid = ZONE_ROWS.map(([depth]) => `<div class="zonerow">${ZONE_COLS.map(side => {
     const z = `${depth}_${side}`, pv = zp.zones[z], dv = zd[z];
     if (!pv) return `<div class="zonecell empty">n/a</div>`;
-    const size = 16 + Math.round(pv.pct / maxPct * 30);
+    const size = 26 + Math.round(pv.pct / maxPct * 30);
     const tier = dv && dv.rank ? zoneTier(dv.rank) : '';
     return `<button class="zonecell ${tier} ${z === sel ? 'sel' : ''}" data-zone="${z}">
-      <span class="dot" style="width:${size}px;height:${size}px">${pv.pct}%</span></button>`;
+      <span class="dot" style="width:${size}px;height:${size}px">${Math.round(pv.pct)}%</span></button>`;
   }).join('')}</div>`).join('');
   return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
     <b>Receiving zone chart</b> <span class="muted" style="font-size:12px">— ${Math.round(favorable)}% of his targets come in zones where ${esc(p.opp)} is a weak matchup. Tap a zone for details.</span>
