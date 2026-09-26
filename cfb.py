@@ -8,6 +8,13 @@ can't verify are correct, this pulls the same numbers ESPN.com's own box scores 
 per game via the public college-football "summary" endpoint. Heavier than the NFL pipeline (one
 request per game instead of one big file), so completed games are cached to disk forever — a
 finished game's box score never changes — and only new/upcoming games are re-fetched.
+
+History spans this season-to-date PLUS all of last season (see PRIOR_SEASON_WEEKS below) — early in
+a new season there aren't enough games yet to find real streaks or a stable defense read from this
+season alone (nflverse-backed NFL and the NBA/NHL modules don't have that problem: they carry 30+
+games or a full prior season by default). The one-time cost is a full season's worth of individual
+box-score fetches (~700-800 games for FBS) the first time this runs; every run after that is cheap,
+since finished games are cached to disk forever exactly like the current-season ones already were.
 """
 import json
 import time
@@ -26,6 +33,9 @@ ESPN_PATH = "apis/site/v2/sports/football/college-football"
 HTTP = {"User-Agent": "Mozilla/5.0 PropBoard"}
 FBS = 80             # ESPN's "group" id for FBS (skips FCS-only games)
 HIST_WEEKS = 6        # how many of the most recent completed weeks to build history from
+PRIOR_SEASON_WEEKS = 16   # regular season only (through conf championships) -- bowl-season rosters/
+                          # motivation are too different from the regular-season sample we want, same
+                          # reasoning nba.py already uses to exclude playoffs from its own history
 
 MARKETS = {                          # label, positions (tuple), min recent volume
     "pass_yds": ("Pass Yds", ("QB",), 12),
@@ -154,10 +164,13 @@ def parse_boxscore(summary):
     return out
 
 
-def load_history(season, current_week):
-    """Every FBS box score from the last HIST_WEEKS completed weeks (cached forever per game)."""
+def load_history(season, current_week, max_weeks=HIST_WEEKS):
+    """Every FBS box score from the last `max_weeks` completed weeks of `season` (cached forever per
+    game). Tags each row with `season` explicitly -- once build_board() concatenates this with a prior
+    season's full history, nothing downstream can tell them apart by week number alone (week 3 of a new
+    season and week 3 of last season are both just "3")."""
     rows = []
-    start = max(1, current_week - HIST_WEEKS)
+    start = max(1, current_week - max_weeks)
     for wk in range(start, current_week):
         try:
             sb = scoreboard(week=wk, season=season)
@@ -170,7 +183,9 @@ def load_history(season, current_week):
         for gid in ids:
             s = game_summary(gid)
             if s:
-                rows.extend(parse_boxscore(s))
+                for row in parse_boxscore(s):
+                    row["season"] = season
+                    rows.append(row)
             time.sleep(0.05)
     return pd.DataFrame(rows)
 
@@ -230,8 +245,15 @@ def defense_ranks(df, fbs_teams):
 def build_board():
     print("NCAAF: fetching schedule...")
     games, week, season = upcoming_games()
-    print(f"NCAAF: week {week}/{season}, {len(games)} upcoming games. Fetching history...")
+    print(f"NCAAF: week {week}/{season}, {len(games)} upcoming games. Fetching this season's history...")
     df = load_history(season, week)
+    # Last season's full regular season, on top of this season's rolling window -- see the module
+    # docstring for why: this early in a new season there aren't enough games yet on their own to find
+    # real streaks or a stable defense read. Cached forever per game (same as the current-season fetch
+    # above), so this is a one-time cost the first time this runs, not a recurring one.
+    print(f"NCAAF: fetching {season - 1}'s full regular season for history depth...")
+    prior = load_history(season - 1, PRIOR_SEASON_WEEKS + 1, max_weeks=PRIOR_SEASON_WEEKS)
+    df = pd.concat([prior, df], ignore_index=True)
     if df.empty:
         print("NCAAF: no history rows, skipping.")
         return {"season": season, "games": games, "props": [], "dvp": {}, "recent": {}, "built": time.time()}
@@ -239,7 +261,9 @@ def build_board():
     df["touches"] = df.carries + df.rec
     df["any_td"] = df.rush_tds + df.rec_tds
     df["rush_att"] = df.carries      # alias: rush_att is a market key, carries is the raw column name
-    df = df.sort_values(["week", "date"]).reset_index(drop=True)
+    # season first, then week+date -- week numbers reset every season (week 3 of 2025 and week 3 of
+    # 2026 are both just "3"), so sorting by week alone would interleave the two seasons out of order.
+    df = df.sort_values(["season", "week", "date"]).reset_index(drop=True)
     # FBS team set: real FBS teams play (almost) every week, so a team seen in most of the fetched
     # weeks is FBS; a one-off FCS/cupcake opponent only ever shows up once or twice. A raw scoreboard
     # event still lists an FCS opponent by name (ESPN's groups=80 filter only guarantees one side is
@@ -248,7 +272,7 @@ def build_board():
     fbs_teams = set(counts[counts >= min(3, df.week.nunique())].index)
     ranks, dvp = defense_ranks(df, fbs_teams)
 
-    latest = df.sort_values("week").groupby("athlete_id").tail(1).set_index("athlete_id")
+    latest = df.sort_values(["season", "week", "date"]).groupby("athlete_id").tail(1).set_index("athlete_id")
     rows = []
     for g in games:
         for team, opp in ((g["home"], g["away"]), (g["away"], g["home"])):
@@ -274,7 +298,7 @@ def build_board():
                         "market": mkey, "label": label,
                         "est": est, "line": est, "src": "est", "over": None, "under": None,
                         "books": [], "inj": None, "opp_rank": rk,
-                        "log": [[season, int(r.week), r.opp, float(getattr(r, mkey)), r.date[:10],
+                        "log": [[int(r.season), int(r.week), r.opp, float(getattr(r, mkey)), r.date[:10],
                                  1 if r.team == g["home"] else (0 if r.team == g["away"] else None),
                                  None, None] for r in hl.itertuples()],
                         "vol": round(float(vol), 1),
@@ -285,13 +309,14 @@ def build_board():
         for pos in positions:
             sub = df[df.pos == pos]
             for def_team, grp in sub.groupby("opp"):
-                byweek = grp.groupby(["game_id", "week"]).agg(total=(mkey, "sum")).reset_index().sort_values("week")
+                byweek = (grp.groupby(["game_id", "season", "week"]).agg(total=(mkey, "sum"))
+                          .reset_index().sort_values(["season", "week"]))
                 entries = []
                 for _, row in byweek.tail(5).iterrows():
                     game_rows = grp[grp.game_id == row.game_id]
                     off_team = game_rows.team.iloc[0] if len(game_rows) else ""
                     top = game_rows.loc[game_rows[mkey].idxmax()] if len(game_rows) else None
-                    entries.append([season, int(row.week), off_team, round(float(row.total), 1),
+                    entries.append([int(row.season), int(row.week), off_team, round(float(row.total), 1),
                                      top["name"] if top is not None else "",
                                      round(float(top[mkey]), 1) if top is not None else 0])
                 recent[f"{def_team}|{pos}|{mkey}"] = entries
