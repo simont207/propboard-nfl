@@ -1034,6 +1034,41 @@ function barChart(gs, line, side) {
     <text x="${L - 8}" y="${y0 + 4}" fill="#8b9a91" font-size="12" text-anchor="end">0</text></svg></div>`;
 }
 
+// Flags a real recent-vs-long-run shift in a player's own numbers -- last 5 games vs everything
+// before that (up to 25 more) -- only surfaced when the gap is big enough to matter (20%+), so this
+// doesn't clutter every page with noise from ordinary week-to-week variance.
+function trendInsight(p) {
+  const vals = p.log.map(x => x[3]);
+  if (vals.length < 10) return null;
+  const recentN = 5;
+  const recent = vals.slice(-recentN), prior = vals.slice(0, vals.length - recentN);
+  if (prior.length < 5) return null;
+  const avg = a => a.reduce((s, v) => s + v, 0) / a.length;
+  const recentAvg = avg(recent), priorAvg = avg(prior);
+  if (priorAvg <= 0) return null;
+  const pctChange = (recentAvg - priorAvg) / priorAvg * 100;
+  if (Math.abs(pctChange) < 20) return null;
+  return { recentAvg, priorAvg, recentN, priorN: prior.length, dir: pctChange > 0 ? 'up' : 'down' };
+}
+
+function trendChart(gs, recentN, priorAvg) {
+  const Wd = 1000, Hd = 200, L = 44, T = 14, B = 26, avail = Wd - L - 10;
+  const max = Math.max(...gs.map(x => x[3]), priorAvg, 1) * 1.12;
+  const slot = Math.min(42, avail / gs.length), bw = Math.min(28, slot * 0.7);
+  const y = v => T + (Hd - T - B) * (1 - v / max), y0 = y(0);
+  const bars = gs.map((x, i) => {
+    const isRecent = i >= gs.length - recentN;
+    const top = y(x[3]), h = Math.max(2, y0 - top), cx = L + slot * i + slot / 2;
+    return `<rect x="${cx - bw / 2}" y="${y0 - h}" width="${bw}" height="${h}" rx="2" fill="${isRecent ? '#f87171' : '#2f3a35'}"><title>${x[0]} Wk ${x[1]}: ${fmtNum(x[3])}</title></rect>`;
+  }).join('');
+  const ry = y(priorAvg);
+  return `<div style="overflow-x:auto"><svg viewBox="0 0 ${Wd} ${Hd}" style="width:100%;min-width:420px;display:block">
+    <line x1="${L}" x2="${Wd - 6}" y1="${y0}" y2="${y0}" stroke="#263029"/>
+    ${bars}
+    <line x1="${L - 4}" x2="${Wd - 6}" y1="${ry}" y2="${ry}" stroke="#8b9a91" stroke-width="1" stroke-dasharray="4,3"/>
+    <text x="${L - 8}" y="${ry + 4}" fill="#8b9a91" font-size="11" text-anchor="end">${fmtNum(Math.round(priorAvg * 10) / 10)}</text></svg></div>`;
+}
+
 // Template-only summary sentences built strictly from numbers already computed for this player/prop —
 // no free-text generation, so it can never state anything not already shown elsewhere on the page.
 function buildSummary(p, o) {
@@ -1162,6 +1197,16 @@ function renderPlayer(p) {
       return summary ? `<div class="chartcard" style="margin-top:14px;padding:14px 16px">
         <b>Summary</b>
         <p class="muted" style="margin:8px 0 0;line-height:1.5;color:var(--text)">${summary}</p></div>` : '';
+    })()}
+    ${(() => {
+      const tr = trendInsight(p);
+      if (!tr) return '';
+      const last = esc(p.player.split(' ').slice(-1)[0]);
+      return `<div class="chartcard" style="margin-top:14px;padding:14px 16px">
+        <b>Trend</b>
+        <p class="muted" style="margin:8px 0 10px;line-height:1.5;color:var(--text)">${last} is averaging ${fmtNum(Math.round(tr.recentAvg * 10) / 10)} ${esc(p.label.toLowerCase())} over his last ${tr.recentN} games, ${tr.dir} from ${fmtNum(Math.round(tr.priorAvg * 10) / 10)} over the prior ${tr.priorN}.</p>
+        ${trendChart(p.log, tr.recentN, tr.priorAvg)}
+      </div>`;
     })()}
     ${(() => {
       if (p.real_alts && p.real_alts.length) return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
