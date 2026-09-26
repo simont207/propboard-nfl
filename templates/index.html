@@ -22,6 +22,7 @@
   .spacer { flex: 1; }
   .btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
     padding: 7px 12px; cursor: pointer; }
+  a.btn { display: inline-block; color: var(--text); text-decoration: none; }
   .btn:hover { border-color: var(--green-dim); }
   .btn.primary { background: var(--green); color: #06210f; border-color: var(--green); font-weight: 600; }
   .btn:disabled { opacity: .5; cursor: default; }
@@ -164,6 +165,7 @@
   .cmp-empty { text-align: center; padding: 20px 0; }
   .cmp-search { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
   .cmp-results { margin-top: 4px; }
+  .cmp-hint { font-size: 11px; color: var(--muted); padding: 4px 10px; }
   .cmp-result { padding: 8px 10px; cursor: pointer; border-radius: 6px; font-size: 13px; }
   .cmp-result:hover { background: var(--panel2); }
   .cmp-table { width: 100%; border-collapse: collapse; }
@@ -1518,7 +1520,7 @@ function renderCompare(id1, id2) {
         cmpCls(evOf(c1), evOf(c2)), cmpCls(evOf(c2), evOf(c1)))}
       ${statRow('Status', c1 ? (c1.p.inj || 'Active') : '–', c2 ? (c2.p.inj || 'Active') : '–')}
     </table>` : '';
-  const search = slot => `<div style="margin-top:10px"><input class="cmp-search" data-slot="${slot}" placeholder="Search a player to compare…" autocomplete="off">
+  const search = slot => `<div style="margin-top:10px"><input class="cmp-search" data-slot="${slot}" placeholder="Search or tap a player…" autocomplete="off">
     <div class="cmp-results" data-slot="${slot}"></div></div>`;
   $('#compareView').innerHTML = `
     <a class="back" href="#/">← Back to board</a>
@@ -1536,18 +1538,32 @@ function renderCompare(id1, id2) {
         location.hash = el.dataset.slot === '1' ? `#/compare/${keep ? '/' + encodeURIComponent(keep) : ''}` : `#/compare/${id1 ? encodeURIComponent(id1) : ''}`;
       };
     } else if (el.tagName === 'INPUT') {
-      el.oninput = () => {
-        const slot = el.dataset.slot, q = el.value.toLowerCase().trim();
+      const slot = el.dataset.slot;
+      const otherP = (slot === '1' ? id2 : id1) && board.props.find(x => x.id === (slot === '1' ? id2 : id1));
+      const showResults = () => {
+        const q = el.value.toLowerCase().trim();
         const results = document.querySelector(`.cmp-results[data-slot="${slot}"]`);
-        if (!q) { results.innerHTML = ''; return; }
-        const matches = board.props.filter(p => p.player.toLowerCase().includes(q)).slice(0, 8);
-        results.innerHTML = matches.map(p => `<div class="cmp-result" data-id="${esc(p.id)}">${esc(p.player)} <span class="muted">${esc(p.label)} · ${esc(p.team)}</span></div>`).join('');
+        let pool = board.props;
+        if (!q && otherP) pool = [...board.props].sort((a, b) => (b.game === otherP.game) - (a.game === otherP.game));
+        const seen = new Set(), list = [];
+        for (const p of pool) {
+          if (q && !p.player.toLowerCase().includes(q)) continue;
+          if (otherP && p.pid === otherP.pid) continue;
+          if (seen.has(p.pid)) continue;
+          seen.add(p.pid);
+          list.push(p);
+          if (list.length >= 8) break;
+        }
+        const hint = !q ? `<div class="cmp-hint">${otherP ? 'Players in this game' : 'Tap a player, or start typing to search'}</div>` : '';
+        results.innerHTML = hint + list.map(p => `<div class="cmp-result" data-id="${esc(p.id)}">${esc(p.player)} <span class="muted">${esc(p.label)} · ${esc(p.team)}</span></div>`).join('');
         results.querySelectorAll('.cmp-result').forEach(r => r.onclick = () => {
           const newId1 = slot === '1' ? r.dataset.id : (id1 || '');
           const newId2 = slot === '2' ? r.dataset.id : (id2 || '');
           location.hash = `#/compare/${encodeURIComponent(newId1)}/${encodeURIComponent(newId2)}`;
         });
       };
+      el.oninput = showResults;
+      el.onfocus = showResults;
     }
   });
 }
