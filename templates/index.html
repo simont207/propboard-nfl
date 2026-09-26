@@ -1127,6 +1127,9 @@ function renderPlayer(p) {
   const gm = g && g.home_spread != null ? (p.home ? -g.home_spread : g.home_spread) : null;   // >0 = favored
   const total = g?.total ?? null;
   const rk = p.opp_rank, rn = poolN(p.pos, p.market), gr = gradeOf(rk, side, rn);
+  // Replaces the old matchup-grade badge: his own best reliably-cleared alt line for THIS market,
+  // instead of a defense-only stat that read like a recommendation regardless of his own production.
+  const best = bestAltChips(p).chips.find(c => !c.near);
 
   // chart filters
   const games = p.log.filter(x => {
@@ -1220,7 +1223,7 @@ function renderPlayer(p) {
         <div class="stat"><div class="k">Opponent</div><div class="v">${p.home ? 'vs' : '@'} ${esc(p.opp)} <small>${g ? fmtTime(g.date) : ''}</small></div></div>
       </div>
       ${ti && ti.tier && ti.tier !== 'OUT' ? `<div class="gbadge"><div class="L">${TIER_ICON[ti.tier]}</div><div class="t">${ti.tier} · ${ti.score.toFixed(2)}<br>Sharpness tier</div></div>` : ''}
-      ${gr ? `<div class="gbadge"><div class="L ${gradeConflict ? '' : gr.cls === 'gA' ? 'g' : gr.cls === 'gD' ? 'r' : ''}">${gr.L}</div><div class="t">Matchup grade<br>for ${side === 'over' ? 'Over' : 'Under'}${gradeConflict ? ` <span style="color:var(--amber)" title="This is about ${esc(p.opp)}'s defense, not ${esc(p.player.split(' ').slice(-1)[0])} personally -- his own last 10 games disagree with it">⚠</span>` : ''}</div></div>` : ''}
+      ${best ? `<div class="gbadge"><div class="L g">${best.t}+</div><div class="t">Best bet<br>cleared ${best.hits}/${best.n}</div></div>` : ''}
     </div>
     ${(() => {
       const summary = buildSummary(p, { avg, avgLbl, line, side, rk, gr, rn, t, pctDiff, R, cur, posName, gradeConflict });
