@@ -25,6 +25,8 @@
   a.btn { display: inline-block; color: var(--text); text-decoration: none; }
   .btn:hover { border-color: var(--green-dim); }
   .btn.primary { background: var(--green); color: #06210f; border-color: var(--green); font-weight: 600; }
+  #btnInsights { background: #a78bfa; border-color: #a78bfa; color: #1e1240; font-weight: 600; }
+  #btnInsights:hover { background: #b8a4e3; border-color: #b8a4e3; }
   .btn:disabled { opacity: .5; cursor: default; }
   .muted { color: var(--muted); }
   main { padding: 16px 20px 60px; max-width: 1600px; margin: 0 auto; }
@@ -397,11 +399,11 @@ window.onerror = function (msg, src, line) {
     <div class="results" id="gresults" hidden></div>
   </div>
   <div class="spacer"></div>
+  <a class="btn" id="btnInsights" href="#/insights">Insights</a>
   <div class="seg" id="oddsFmt" title="How odds are shown (Odds columns, alt lines, parlay slip)">
     <button data-f="american" class="on">American</button>
     <button data-f="decimal">Decimal</button>
   </div>
-  <a class="btn" href="#/insights" style="display:inline-block">Insights</a>
   <button class="btn" id="btnSlip">Parlay <b id="slipN">0</b></button>
   <button class="btn" id="btnRefresh">↻ Refresh stats</button>
   <button class="btn primary" id="btnLines">Sportsbook lines</button>
@@ -1658,11 +1660,16 @@ function playerStreaks() {
 
 function renderInsights() {
   const cards = [];
-  (board.team_streaks || []).forEach(t => {
+  (board.team_streaks || []).forEach((t, i) => {
     const g = board.games.find(x => x.id === t.game);
     const logo = g ? (g.home === t.team ? g.home_logo : g.away_logo) : null;
     const pct = t.hits / t.n;
-    cards.push({ pct, html: `<div class="chartcard" style="margin-bottom:10px;padding:14px 16px">
+    const gameRows = (t.games || []).slice().reverse().map(([season, week, opp, res]) => {
+      const hit = res === t.dir;
+      const label = t.kind === 'ats' ? (res === 'W' ? 'Covered' : 'No cover') : (res === 'O' ? 'Over' : 'Under');
+      return `<tr><td>${season} Wk ${week}</td><td>vs ${esc(opp)}</td><td class="${hit ? 'g' : 'r'}">${label}</td></tr>`;
+    }).join('');
+    cards.push({ pct, html: `<div class="chartcard insight-team" data-i="${i}" style="margin-bottom:10px;padding:14px 16px;cursor:pointer">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         ${timg(t.team, logo, 32)}
         <div><div style="font-weight:600;font-size:13px">${esc(t.team)} vs ${esc(t.opp)}</div>
@@ -1672,6 +1679,9 @@ function renderInsights() {
       <div style="display:flex;align-items:center;gap:10px">
         <div class="wltrack" style="flex:1"><div class="wlfill on" style="width:${Math.round(pct * 100)}%"></div></div>
         <div class="muted" style="font-size:12px;min-width:36px;text-align:right">${t.hits}/${t.n}</div>
+      </div>
+      <div class="insight-detail" hidden style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+        <table class="recent"><tr class="muted"><th>Game</th><th>Opponent</th><th>Result</th></tr>${gameRows}</table>
       </div></div>` });
   });
   playerStreaks().forEach(({ p, line, count }) => {
@@ -1679,14 +1689,14 @@ function renderInsights() {
     // label ("Q1 Rush 5+", "Anytime TD") -- appending the raw 4.5/0.5 line on top would be redundant
     // and confusing, so only real/estimated-line markets get the "45.5+" prefix.
     const desc = p.src === 'fixed' ? esc(p.label) : `${line}+ ${esc(p.label.toLowerCase())}`;
-    cards.push({ pct: Math.min(1, count / 12), html: `<div class="chartcard" style="margin-bottom:10px;padding:14px 16px">
-      <a href="#/p/${encodeURIComponent(p.id)}" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;text-decoration:none;color:inherit">
+    cards.push({ pct: Math.min(1, count / 12), html: `<a href="#/p/${encodeURIComponent(p.id)}" class="chartcard" style="display:block;margin-bottom:10px;padding:14px 16px;text-decoration:none;color:inherit">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         ${pimg(p.player, p.img, 32)}
         <div><div style="font-weight:600;font-size:13px">${esc(p.player)}</div>
         <div class="muted" style="font-size:11px">${esc(p.pos)} · ${esc(p.team)} ${p.home ? 'vs' : '@'} ${esc(p.opp)}</div></div>
-      </a>
+      </div>
       <div style="font-weight:600">Has cleared ${desc} in ${count} straight games.</div>
-    </div>` });
+    </a>` });
   });
   cards.sort((a, b) => b.pct - a.pct);
   $('#insightsView').innerHTML = `
@@ -1695,6 +1705,9 @@ function renderInsights() {
     <p class="muted" style="margin:0 0 16px">Real streaks surfaced automatically — team against-the-spread/over-under runs and player prop streaks. Not predictions, just what already happened.</p>
     ${cards.length ? cards.map(c => c.html).join('')
       : '<div class="empty"><div class="ic">📊</div><div class="msg">No notable streaks right now</div><div class="sub">Check back once more of this week’s games are locked in.</div></div>'}`;
+  document.querySelectorAll('.insight-team').forEach(el => el.onclick = () => {
+    el.querySelector('.insight-detail').hidden = !el.querySelector('.insight-detail').hidden;
+  });
 }
 
 function renderGame(g) {

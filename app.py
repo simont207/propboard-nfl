@@ -370,10 +370,10 @@ def team_situational_streaks(games):
     for r in g.itertuples():
         cover = r.result - r.spread_line          # >0 home covered, <0 away covered, 0 push
         ou = None if pd.isna(r.total_line) or r.total == r.total_line else ("O" if r.total > r.total_line else "U")
-        rows.append({"team": r.home_team, "season": r.season, "week": r.week, "fav": r.spread_line > 0,
-                      "ats": None if cover == 0 else ("W" if cover > 0 else "L"), "ou": ou})
-        rows.append({"team": r.away_team, "season": r.season, "week": r.week, "fav": r.spread_line < 0,
-                      "ats": None if cover == 0 else ("W" if cover < 0 else "L"), "ou": ou})
+        rows.append({"team": r.home_team, "opp": r.away_team, "season": r.season, "week": r.week,
+                      "fav": r.spread_line > 0, "ats": None if cover == 0 else ("W" if cover > 0 else "L"), "ou": ou})
+        rows.append({"team": r.away_team, "opp": r.home_team, "season": r.season, "week": r.week,
+                      "fav": r.spread_line < 0, "ats": None if cover == 0 else ("W" if cover < 0 else "L"), "ou": ou})
     hist = pd.DataFrame(rows).sort_values(["team", "season", "week"])
 
     def streak(vals):
@@ -408,10 +408,12 @@ def team_situational_streaks(games):
                 hits, n, d = ats
                 verb = "covered the spread" if d == "W" else "failed to cover the spread"
                 straight = " straight" if hits == n else ""
+                recent = grp[grp.ats.notna()].tail(n)
                 out.append({
-                    "kind": "ats", "team": team_espn, "opp": opp_espn, "game": gm["id"],
+                    "kind": "ats", "team": team_espn, "opp": opp_espn, "game": gm["id"], "dir": d,
                     "text": f"{team_espn} {verb} in {hits} of their last {n}{straight} games as {role}.",
                     "hits": hits, "n": n,
+                    "games": [[int(x.season), int(x.week), x.opp, x.ats] for x in recent.itertuples()],
                 })
             ou_vals = ["W" if v == "O" else "L" if v == "U" else None for v in grp.ou.tolist()]
             ou = streak(ou_vals)
@@ -419,10 +421,12 @@ def team_situational_streaks(games):
                 hits, n, d = ou
                 word = "over" if d == "W" else "under"
                 straight = " straight" if hits == n else ""
+                recent = grp[grp.ou.notna()].tail(n)
                 out.append({
-                    "kind": "ou", "team": team_espn, "opp": opp_espn, "game": gm["id"],
+                    "kind": "ou", "team": team_espn, "opp": opp_espn, "game": gm["id"], "dir": word[0].upper(),
                     "text": f"The {word} has hit in {hits} of {team_espn}'s last {n}{straight} games as {role}.",
                     "hits": hits, "n": n,
+                    "games": [[int(x.season), int(x.week), x.opp, x.ou] for x in recent.itertuples()],
                 })
     return out
 
