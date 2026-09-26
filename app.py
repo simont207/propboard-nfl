@@ -313,6 +313,46 @@ def load_schedule():
     return {r.game_id: (r.gameday, r.home_team, r.spread_line, r.total_line) for r in g.itertuples()}
 
 
+def load_rest_days(games):
+    """Days between each upcoming game's kickoff and that team's own previous game this season --
+    same games.csv already cached by load_schedule(), just grouped per team instead of per game_id."""
+    import datetime
+    f = DATA / "games.csv"
+    try:
+        g = pd.read_csv(f, usecols=["game_id", "season", "gameday", "home_team", "away_team"])
+    except Exception:
+        return {}
+    g = g[g.season == SEASON]
+    by_team = {}
+    for r in g.itertuples():
+        by_team.setdefault(r.home_team, []).append(r.gameday)
+        by_team.setdefault(r.away_team, []).append(r.gameday)
+    for team in by_team:
+        by_team[team].sort()
+
+    out = {}
+    for gm in games:
+        # ESPN's date is UTC; a Thu/Sun-night game crossing midnight UTC reports the NEXT calendar day
+        # there while nflverse's own gameday (and every US fan's sense of "game day") stays the local
+        # one -- shift back before comparing, or a game can appear to be its own "previous game."
+        kickoff_utc = datetime.datetime.fromisoformat(gm["date"].replace("Z", "+00:00"))
+        kickoff = (kickoff_utc - datetime.timedelta(hours=5)).date()
+        for side in ("home", "away"):
+            team = ESPN_TO_NFLVERSE.get(gm[side], gm[side])
+            prior = [datetime.date.fromisoformat(d) for d in by_team.get(team, []) if datetime.date.fromisoformat(d) < kickoff]
+            if not prior:
+                continue
+            days = (kickoff - max(prior)).days
+            out[(team, gm["id"])] = {"days": days, "label": (
+                "Off a bye week" if days >= 12 else
+                "Extra rest" if days >= 8 else
+                "Standard week of rest" if days == 7 else
+                "Short week" if days <= 4 else
+                f"{days} days of rest"
+            )}
+    return out
+
+
 def load_injuries():
     f = DATA / f"inj{SEASON}.parquet"
     if not download(f"{NFLVERSE}/injuries/injuries_{SEASON}.parquet", f, 3):
@@ -1010,6 +1050,7 @@ def build_board():
     df = load_stats()
     games = get_games()
     weather = load_weather(games)
+    rest = load_rest_days(games)
     for g in games:
         g["weather"] = weather.get(g["id"])
     inj, inj_week, inj_latest = load_injuries()
@@ -1068,6 +1109,7 @@ def build_board():
                         "tier": tiers.get((pid, mkey, g["id"])),
                         "ev_over": None, "ev_under": None, "real_alts": [], "fair_line": None,
                         "zone_edge": zone_edge(pid, o, zones_player, zones_def) if mkey in ZONE_MARKETS else None,
+                        "opp_rest": rest.get((o, g["id"])),
                     }
                     books = odds["lines"].get(f"{norm_name(p.player_display_name)}|{mkey}")
                     if books:

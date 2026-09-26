@@ -1244,6 +1244,7 @@ function renderPlayer(p) {
         ${implied != null ? mline(`${esc(p.team)} implied team total`, implied.toFixed(1)) : ''}
         ${g ? mline('Game line', `${esc(g.spread || '–')}${total ? ' · O/U ' + total : ''}`) : ''}
         ${g && g.weather ? mline('Weather at kickoff', `${g.weather.temp}°F, ${g.weather.wind}mph wind${g.weather.precip >= 20 ? `, ${g.weather.precip}% rain` : ''}`, g.weather.wind >= 15 || g.weather.precip >= 30 ? 'r' : '') : ''}
+        ${p.opp_rest ? mline(`${esc(p.opp)} rest`, `${p.opp_rest.label} (${p.opp_rest.days}d)`, p.opp_rest.days <= 4 || p.opp_rest.days >= 10 ? 'r' : '') : ''}
         ${mline(`${esc(p.player.split(' ').slice(-1)[0])} vs ${esc(p.opp)}`, h2h.length ? `${fmtNum(Math.round(avgOf(h2h.map(x => x[3])) * 10) / 10)} avg (${h2h.length} g)` : 'no games')}
         ${recent.length ? `<h4 style="margin:16px 0 4px">${esc(p.opp)}'s last ${recent.length} games vs ${posName}</h4><table class="recent">
           <tr class="muted"><th>Game</th><th>All ${posName}</th><th>Top performer</th></tr>
