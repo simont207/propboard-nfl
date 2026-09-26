@@ -16,6 +16,7 @@ games or a full prior season by default). The one-time cost is a full season's w
 box-score fetches (~700-800 games for FBS) the first time this runs; every run after that is cheap,
 since finished games are cached to disk forever exactly like the current-season ones already were.
 """
+import io
 import json
 import time
 from pathlib import Path
@@ -36,6 +37,19 @@ HIST_WEEKS = 6        # how many of the most recent completed weeks to build his
 PRIOR_SEASON_WEEKS = 16   # regular season only (through conf championships) -- bowl-season rosters/
                           # motivation are too different from the regular-season sample we want, same
                           # reasoning nba.py already uses to exclude playoffs from its own history
+
+# Team ATS/O-U streaks (see cfb_team_streaks below) need real game-level results + closing lines,
+# which this module's own ESPN box-score pipeline doesn't carry (that's player stats only). cfbfastR-
+# data publishes both as plain files committed straight into the repo (not GitHub Releases), each a
+# few MB -- small enough to just re-fetch whole on every build rather than caching to disk like the
+# box scores above. Verified by hand before writing this: real spread/total/moneyline lines from
+# multiple books back to 2006, actively maintained (updated within the last week as of writing).
+# team_id in this dataset is ESPN's own numeric team id (confirmed against ESPN's logo CDN, which
+# every row's own logo URL is keyed by) -- the same id ESPN's scoreboard exposes per competitor, so
+# it's used as the join key back to upcoming_games() rather than matching by team name across the two
+# datasets, which would be far more fragile ("Hawai'i" vs "Hawaii", mascot suffixes, etc).
+CFBFASTR_RAW = "https://raw.githubusercontent.com/sportsdataverse/cfbfastR-data/main"
+CFB_BOOK_ORDER = ["ESPN Bet", "DraftKings", "Draft Kings", "Bovada"]   # coverage-checked by hand; ESPN Bet has the most rows
 
 MARKETS = {                          # label, positions (tuple), min recent volume
     "pass_yds": ("Pass Yds", ("QB",), 12),
@@ -216,6 +230,9 @@ def upcoming_games():
                 "home_logo": home["team"].get("logo"), "away_logo": away["team"].get("logo"),
                 "spread": odds.get("details"), "total": odds.get("overUnder"),
                 "home_spread": odds.get("spread"),
+                # ESPN's own numeric team id -- only used to join against cfb_team_streaks' history
+                # (see CFBFASTR_RAW above), not shown anywhere or used for the box-score pipeline.
+                "home_id": home["team"].get("id"), "away_id": away["team"].get("id"),
             })
     games.sort(key=lambda g: g["date"])
     return games, week, season
@@ -242,9 +259,145 @@ def defense_ranks(df, fbs_teams):
     return ranks, dvp
 
 
+def load_cfb_betting_history(seasons):
+    """Real per-team ATS/O-U results for `seasons`, from cfbfastR-data's schedules (final scores)
+    joined with its betting lines (closing spread/total, one row per game picked via CFB_BOOK_ORDER).
+    Returns a DataFrame with one row per team per game -- team_id, opp, season, week, fav (bool: was
+    this team favored), ats ('W'/'L'/None), ou ('O'/'U'/None) -- shaped like app.py's own
+    team_situational_streaks() history, but built from a completely different data source since CFB
+    has no nflverse-equivalent file with results+lines already joined."""
+    frames = []
+    for yr in seasons:
+        try:
+            r = requests.get(f"{CFBFASTR_RAW}/schedules/csv/cfb_schedules_{yr}.csv", timeout=30)
+            r.raise_for_status()
+            frames.append(pd.read_csv(io.StringIO(r.text)))
+        except Exception as e:
+            print(f"cfbfastR schedules {yr} failed: {e}")
+    if not frames:
+        return pd.DataFrame()
+    sched = pd.concat(frames, ignore_index=True)
+    sched = sched[(sched.completed == True) & sched.home_points.notna() & sched.away_points.notna()].copy()
+    for c in ("game_id", "home_id", "away_id"):
+        sched[c] = sched[c].astype("int64")
+
+    try:
+        r = requests.get(f"{CFBFASTR_RAW}/betting/csv/cfb_line_odds.csv.gz", timeout=60)
+        r.raise_for_status()
+        bet = pd.read_csv(io.BytesIO(r.content), compression="gzip")
+    except Exception as e:
+        print(f"cfbfastR betting lines failed: {e}")
+        return pd.DataFrame()
+    bet = bet[bet.season.isin(seasons)].copy()
+    if bet.empty:
+        # Real gap, not a bug: the betting file has historically lagged a season behind the
+        # schedules file (verified by hand -- the current season had zero rows in it when this was
+        # written). Team streaks for that season just won't exist yet; nothing downstream crashes on
+        # an empty history, same soft-degradation as everywhere else in this codebase.
+        return pd.DataFrame()
+    bet["game_id"] = bet.game_id.astype("int64")
+    bet["book_rank"] = bet.book.map({b: i for i, b in enumerate(CFB_BOOK_ORDER)}).fillna(99)
+
+    spread = bet[bet.market_type == "spread"].merge(
+        sched[["game_id", "home_team"]], on="game_id", how="inner")
+    spread = spread[spread.abbr == spread.home_team]      # the home side's own spread row -- safe to
+    # name-match here (unlike the ESPN join above) since both sides come from this same cfbfastR game record
+    spread = spread.sort_values("book_rank").groupby("game_id").first().reset_index()
+    spread = spread[["game_id", "lines"]].rename(columns={"lines": "home_spread"})
+
+    total = bet[(bet.market_type == "total") & (bet.abbr == "over")]
+    total = total.sort_values("book_rank").groupby("game_id").first().reset_index()
+    total = total[["game_id", "lines"]].rename(columns={"lines": "total_line"})
+
+    g = sched.merge(spread, on="game_id", how="inner").merge(total, on="game_id", how="left")
+    if g.empty:
+        return pd.DataFrame()
+
+    rows = []
+    for r in g.itertuples():
+        margin = r.home_points - r.away_points
+        cover = margin + r.home_spread     # >0 home covered, <0 away covered, 0 push (negative home_spread = home favored, same sign convention ESPN's live odds use)
+        total_pts = r.home_points + r.away_points
+        ou = None if pd.isna(r.total_line) or total_pts == r.total_line else ("O" if total_pts > r.total_line else "U")
+        rows.append({"team_id": r.home_id, "opp": r.away_team, "season": int(r.season), "week": int(r.week),
+                      "fav": r.home_spread < 0, "ats": None if cover == 0 else ("W" if cover > 0 else "L"), "ou": ou})
+        rows.append({"team_id": r.away_id, "opp": r.home_team, "season": int(r.season), "week": int(r.week),
+                      "fav": r.home_spread > 0, "ats": None if cover == 0 else ("W" if cover < 0 else "L"), "ou": ou})
+    return pd.DataFrame(rows).sort_values(["team_id", "season", "week"])
+
+
+def cfb_team_streaks(games, hist):
+    """Same algorithm and output shape as app.py's team_situational_streaks(), so the frontend's
+    Insights feed needs zero changes to pick this up. Joins to `hist` by ESPN team id (see
+    upcoming_games()), and only ever outputs the upcoming game's own ESPN team codes -- hist's
+    cfbfastR-sourced team/opp names never leak into the result."""
+    if hist.empty:
+        return []
+
+    def streak(vals):
+        vals = [v for v in vals if v][-10:]
+        n = len(vals)
+        if n < 5:
+            return None
+        w, l = vals.count("W"), vals.count("L")
+        if w and w / n >= 0.8:
+            return w, n, "W"
+        if l and l / n >= 0.8:
+            return l, n, "L"
+        return None
+
+    out = []
+    for gm in games:
+        for side, team_espn, opp_espn, team_id in (
+            ("home", gm["home"], gm["away"], gm.get("home_id")),
+            ("away", gm["away"], gm["home"], gm.get("away_id")),
+        ):
+            hs = gm.get("home_spread")
+            if hs is None or team_id is None:
+                continue
+            fav = (hs < 0) if side == "home" else (hs > 0)
+            grp = hist[(hist.team_id == team_id) & (hist.fav == fav)]
+            article = "an" if side == "away" else "a"
+            role = f"{article} {side} {'favorite' if fav else 'underdog'}"
+
+            ats = streak(grp.ats.tolist())
+            if ats:
+                hits, n, d = ats
+                verb = "covered the spread" if d == "W" else "failed to cover the spread"
+                straight = " straight" if hits == n else ""
+                recent = grp[grp.ats.notna()].tail(n)
+                out.append({
+                    "kind": "ats", "team": team_espn, "opp": opp_espn, "game": gm["id"], "dir": d,
+                    "text": f"{team_espn} {verb} in {hits} of their last {n}{straight} games as {role}.",
+                    "hits": hits, "n": n,
+                    "games": [[x.season, x.week, x.opp, x.ats] for x in recent.itertuples()],
+                })
+            ou_vals = ["W" if v == "O" else "L" if v == "U" else None for v in grp.ou.tolist()]
+            ou = streak(ou_vals)
+            if ou:
+                hits, n, d = ou
+                word = "over" if d == "W" else "under"
+                straight = " straight" if hits == n else ""
+                recent = grp[grp.ou.notna()].tail(n)
+                out.append({
+                    "kind": "ou", "team": team_espn, "opp": opp_espn, "game": gm["id"], "dir": word[0].upper(),
+                    "text": f"The {word} has hit in {hits} of {team_espn}'s last {n}{straight} games as {role}.",
+                    "hits": hits, "n": n,
+                    "games": [[x.season, x.week, x.opp, x.ou] for x in recent.itertuples()],
+                })
+    return out
+
+
 def build_board():
     print("NCAAF: fetching schedule...")
     games, week, season = upcoming_games()
+    print("NCAAF: fetching team ATS/O-U history (cfbfastR schedules + betting lines)...")
+    try:
+        team_hist = load_cfb_betting_history([season, season - 1])
+        team_streaks = cfb_team_streaks(games, team_hist)
+    except Exception as e:
+        print(f"NCAAF: team streaks failed, leaving them empty: {e}")
+        team_streaks = []
     print(f"NCAAF: week {week}/{season}, {len(games)} upcoming games. Fetching this season's history...")
     df = load_history(season, week)
     # Last season's full regular season, on top of this season's rolling window -- see the module
@@ -256,7 +409,8 @@ def build_board():
     df = pd.concat([prior, df], ignore_index=True)
     if df.empty:
         print("NCAAF: no history rows, skipping.")
-        return {"season": season, "games": games, "props": [], "dvp": {}, "recent": {}, "built": time.time()}
+        return {"season": season, "games": games, "props": [], "dvp": {}, "recent": {},
+                "team_streaks": team_streaks, "built": time.time()}
     df["rush_rec_yds"] = df.rush_yds + df.rec_yds
     df["touches"] = df.carries + df.rec
     df["any_td"] = df.rush_tds + df.rec_tds
@@ -322,6 +476,7 @@ def build_board():
                 recent[f"{def_team}|{pos}|{mkey}"] = entries
 
     board = {"season": season, "games": games, "props": rows, "dvp": dvp, "recent": recent,
+             "team_streaks": team_streaks,
              "inj_week": 0, "built": time.time(), "has_key": False, "odds_pulled": None, "odds_remaining": None}
     return _clean_nans(board)
 
