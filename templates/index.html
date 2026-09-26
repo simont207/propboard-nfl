@@ -1093,7 +1093,7 @@ function trendChart(gs, recentN, priorAvg) {
 // Template-only summary sentences built strictly from numbers already computed for this player/prop —
 // no free-text generation, so it can never state anything not already shown elsewhere on the page.
 function buildSummary(p, o) {
-  const { avg, avgLbl, line, side, rk, gr, rn, t, pctDiff, R, cur, posName } = o;
+  const { avg, avgLbl, line, side, rk, gr, rn, t, pctDiff, R, cur, posName, gradeConflict } = o;
   const last = esc(p.player.split(' ').slice(-1)[0]);
   const parts = [];
   if (avg != null) {
@@ -1107,7 +1107,9 @@ function buildSummary(p, o) {
   }
   if (R[cur[0]].n) {
     const windowNote = /^l\d+$/.test(cur[0]) ? '' : ` (${esc(cur[1])})`;
-    parts.push(`He's cleared ${line} in ${R[cur[0]].hits} of his last ${R[cur[0]].n} games${windowNote} (${Math.round(R[cur[0]].pct)}%).`);
+    const lead = gradeConflict ? 'But despite that matchup, he\'s' : 'He\'s';
+    const tail = gradeConflict ? ' — the matchup grade is about the defense, not him personally, and that hasn\'t translated into results here' : '';
+    parts.push(`${lead} cleared ${line} in ${R[cur[0]].hits} of his last ${R[cur[0]].n} games${windowNote} (${Math.round(R[cur[0]].pct)}%)${tail}.`);
   }
   const usage = board.usage && board.usage[`${p.team}|${p.pos}`];
   if (usage && usage.length >= 2) {
@@ -1143,6 +1145,12 @@ function renderPlayer(p) {
   const R = Object.fromEntries(WINS.map(([k, , gs]) => [k, rate(gs.map(x => x[3]), line, side)]));
   const cur = WINS.find(w => w[0] === PV.win) || WINS[4];
   const pcls = x => !x.n ? 'n' : x.pct >= 70 ? 'g' : x.pct <= 30 ? 'r' : '';
+  // The matchup grade is defense-only (how much CLE allows to RBs in general) -- it says nothing about
+  // whether THIS player is actually getting the touches/looks to benefit from that. A green A-grade next
+  // to a player who's personally cleared the line 1 time in 10 reads as "take the Over" when the two
+  // numbers actually disagree, so flag it instead of just coloring the grade green regardless.
+  const gradeConflict = gr && R.l10.n >= 5 &&
+    ((gr.L[0] === 'A' && R.l10.pct <= 30) || ((gr.L[0] === 'D' || gr.L[0] === 'F') && R.l10.pct >= 70));
 
   // header numbers
   const s26 = p.log.filter(x => x[0] === board.season).map(x => x[3]);
@@ -1212,10 +1220,10 @@ function renderPlayer(p) {
         <div class="stat"><div class="k">Opponent</div><div class="v">${p.home ? 'vs' : '@'} ${esc(p.opp)} <small>${g ? fmtTime(g.date) : ''}</small></div></div>
       </div>
       ${ti && ti.tier && ti.tier !== 'OUT' ? `<div class="gbadge"><div class="L">${TIER_ICON[ti.tier]}</div><div class="t">${ti.tier} · ${ti.score.toFixed(2)}<br>Sharpness tier</div></div>` : ''}
-      ${gr ? `<div class="gbadge"><div class="L ${gr.cls === 'gA' ? 'g' : gr.cls === 'gD' ? 'r' : ''}">${gr.L}</div><div class="t">Matchup grade<br>for ${side === 'over' ? 'Over' : 'Under'}</div></div>` : ''}
+      ${gr ? `<div class="gbadge"><div class="L ${gradeConflict ? '' : gr.cls === 'gA' ? 'g' : gr.cls === 'gD' ? 'r' : ''}">${gr.L}</div><div class="t">Matchup grade<br>for ${side === 'over' ? 'Over' : 'Under'}${gradeConflict ? ` <span style="color:var(--amber)" title="This is about ${esc(p.opp)}'s defense, not ${esc(p.player.split(' ').slice(-1)[0])} personally -- his own last 10 games disagree with it">⚠</span>` : ''}</div></div>` : ''}
     </div>
     ${(() => {
-      const summary = buildSummary(p, { avg, avgLbl, line, side, rk, gr, rn, t, pctDiff, R, cur, posName });
+      const summary = buildSummary(p, { avg, avgLbl, line, side, rk, gr, rn, t, pctDiff, R, cur, posName, gradeConflict });
       return summary ? `<div class="chartcard" style="margin-top:14px;padding:14px 16px">
         <b>Summary</b>
         <p class="muted" style="margin:8px 0 0;line-height:1.5;color:var(--text)">${summary}</p></div>` : '';
