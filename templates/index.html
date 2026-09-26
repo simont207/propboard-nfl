@@ -80,6 +80,19 @@
   .wlfill { height: 100%; background: var(--blue); border-radius: 4px; }
   .wlfill.on { background: var(--green); }
   .wlval { width: 34px; flex-shrink: 0; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  /* insights: per-game hit/miss history strip + expandable market row */
+  .hbar { display: flex; gap: 2px; flex: 1; height: 20px; min-width: 50px; }
+  .hbar span { flex: 1; min-width: 3px; border-radius: 3px; background: var(--red); opacity: .5; }
+  .hbar span.hit { background: var(--green); opacity: 1; }
+  .insight-card { cursor: default; }
+  .insight-mrow { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid var(--line); cursor: pointer; }
+  .insight-mrow .chev { color: var(--muted); font-size: 11px; flex: none; transition: transform .15s; }
+  .insight-mrow.open .chev { transform: rotate(90deg); }
+  .insight-mrow .ml { font-size: 13px; font-weight: 600; flex: 0 0 auto; max-width: 42%; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .insight-mrow .pct { font-size: 14px; font-weight: 800; min-width: 42px; text-align: right; flex: none; }
+  .insight-odds { display: flex; align-items: center; gap: 6px; flex: none; font-size: 13px; font-weight: 700; }
   .ralink { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .ralink:last-child { border-bottom: none; }
   .lineinput { width: 72px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
@@ -335,6 +348,12 @@
   body.filters-open #filtersPanel { transform: none; }
   @media (min-width: 1150px) { body.filters-open main { padding-right: 362px; } }
   @media (max-width: 700px) { #filtersPanel { width: 100%; } }
+  #insightsFiltersPanel { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; max-width: 100%; background: var(--panel);
+    border-left: 1px solid var(--line); z-index: 15; transform: translateX(100%); transition: transform .2s;
+    display: flex; flex-direction: column; }
+  body.insights-filters-open #insightsFiltersPanel { transform: none; }
+  @media (min-width: 1150px) { body.insights-filters-open main { padding-right: 362px; } }
+  @media (max-width: 700px) { #insightsFiltersPanel { width: 100%; } }
   .filters-h { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px;
     border-bottom: 1px solid var(--line); }
   .filters-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
@@ -469,6 +488,7 @@ window.onerror = function (msg, src, line) {
 <aside id="slip"></aside>
 <button id="slipBar" hidden></button>
 <aside id="filtersPanel"></aside>
+<aside id="insightsFiltersPanel"></aside>
 <div class="veil" id="veil"></div>
 
 <div class="modal" id="modal">
@@ -555,6 +575,8 @@ const F = { markets: new Set(['rec_yds']), pos: '', team: '', game: '', q: '', s
             oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '', altLinesOpen: false };
 let SORT_LABEL = 'hit';         // cosmetic only: 'dvp' and 'grade' both resolve to F.sort='opp_rank' (grade is derived from rank)
 let FROW_OPEN = null;           // which filters-panel accordion row is expanded, if any
+const IF = { type: '', team: '', game: '', minhit: 0, sort: 'pct' };   // insights filters
+let IFILTERS_OPEN = false, IFROW_OPEN = null;
 let overrides = {};
 const EXPANDED = new Set();   // prop ids whose alt-line row is open on the board
 try { overrides = JSON.parse(localStorage.getItem(lsKey('pb_lines')) || '{}'); } catch (e) {}
@@ -603,6 +625,7 @@ function switchSport(sport) {
                       side: 'over', win: 'l10', minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1,
                       oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '', altLinesOpen: false });
   SORT_LABEL = 'hit'; FROW_OPEN = null;
+  Object.assign(IF, { type: '', team: '', game: '', minhit: 0, sort: 'pct' }); IFROW_OPEN = null;
   overrides = {}; try { overrides = JSON.parse(localStorage.getItem(lsKey('pb_lines')) || '{}'); } catch (e) {}
   EXPANDED.clear(); SLIP.length = 0; SLIP_OPEN = false;
   try { SLIP.push(...JSON.parse(localStorage.getItem(lsKey('pb_slip')) || '[]')); } catch (e) {}
@@ -1659,20 +1682,88 @@ function playerStreaks() {
 }
 
 const INSIGHT_COLORS = { ats: '#60a5fa', ou: '#fbbf24', player: '#4ade80' };
+function insightHistoryBar(hits) {
+  return `<div class="hbar">${hits.map(h => `<span class="${h ? 'hit' : ''}"></span>`).join('')}</div>`;
+}
+function insightsFiltersActiveCount() {
+  let n = 0;
+  if (IF.type) n++; if (IF.team) n++; if (IF.game) n++; if (IF.minhit > 0) n++;
+  return n;
+}
+const INSIGHT_SORTS = { pct: 'Strength', soon: 'Soonest game', az: 'A–Z' };
+function frowI(key, label, badge, bodyHtml) {
+  const open = IFROW_OPEN === key;
+  return `<div class="frow ${open ? 'open' : ''}">
+    <div class="frow-h" data-irow="${key}"><span class="lbl">${label}</span><span class="fbadge">${esc(String(badge))}</span><span class="chev">▾</span></div>
+    ${open ? `<div class="frow-body">${bodyHtml}</div>` : ''}
+  </div>`;
+}
+function renderInsightsFilters(allCards) {
+  document.body.classList.toggle('insights-filters-open', IFILTERS_OPEN);
+  const teams = [...new Set(allCards.map(c => c.team).filter(Boolean))].sort();
+  const games = [...new Map(allCards.filter(c => c.game).map(c => [c.game, board.games.find(x => x.id === c.game)])).values()].filter(Boolean);
+  const typeLabel = IF.type === 'team' ? 'Team' : IF.type === 'player' ? 'Player' : 'All';
+  const gameBadge = IF.game ? (() => { const g = board.games.find(x => x.id === IF.game);
+    return g ? `${teamCode(g.away)} @ ${teamCode(g.home)}` : 'All'; })() : 'All';
+  $('#insightsFiltersPanel').innerHTML = `
+    <div class="filters-h"><b>Filters</b><button class="btn" id="ifClose">✕</button></div>
+    <div class="filters-body">
+      ${frowI('type', 'Insight Type', typeLabel, `
+        <select id="ifType"><option value="">All Insights</option>
+          <option value="team" ${IF.type === 'team' ? 'selected' : ''}>Team (ATS / O-U)</option>
+          <option value="player" ${IF.type === 'player' ? 'selected' : ''}>Player streaks</option>
+        </select>`)}
+      ${frowI('team', 'Team', IF.team || 'All', `
+        <select id="ifTeam"><option value="">All</option>
+          ${teams.map(t => `<option value="${esc(t)}" ${IF.team === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+        </select>`)}
+      ${frowI('game', 'Game', gameBadge, `
+        <select id="ifGame"><option value="">All</option>
+          ${games.map(g => `<option value="${g.id}" ${IF.game === g.id ? 'selected' : ''}>${teamCode(g.away)} @ ${teamCode(g.home)}</option>`).join('')}
+        </select>`)}
+      ${frowI('minhit', 'Min Hit Rate', `> ${IF.minhit}%`, `
+        <div class="filter-range"><input type="number" id="ifMinhit" min="0" max="100" step="5" value="${IF.minhit}" style="max-width:90px"><span class="muted">%</span></div>`)}
+      ${frowI('sort', 'Sort By', INSIGHT_SORTS[IF.sort], `
+        <select id="ifSort">${Object.entries(INSIGHT_SORTS).map(([k, l]) => `<option value="${k}" ${IF.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+    </div>
+    <div class="filters-f"><button class="btn" id="ifClear">Clear Filters</button><button class="btn primary" id="ifDone">Done</button></div>`;
+  document.querySelectorAll('#insightsFiltersPanel .frow-h[data-irow]').forEach(el => el.onclick = () => {
+    IFROW_OPEN = IFROW_OPEN === el.dataset.irow ? null : el.dataset.irow;
+    renderInsightsFilters(allCards);
+  });
+  $('#ifClose').onclick = $('#ifDone').onclick = () => { IFILTERS_OPEN = false; renderInsightsFilters(allCards); };
+  $('#ifClear').onclick = () => { Object.assign(IF, { type: '', team: '', game: '', minhit: 0, sort: 'pct' }); renderInsights(); };
+  if ($('#ifType')) $('#ifType').onchange = e => { IF.type = e.target.value; renderInsights(); };
+  if ($('#ifTeam')) $('#ifTeam').onchange = e => { IF.team = e.target.value; renderInsights(); };
+  if ($('#ifGame')) $('#ifGame').onchange = e => { IF.game = e.target.value; renderInsights(); };
+  if ($('#ifMinhit')) $('#ifMinhit').onchange = e => { IF.minhit = +e.target.value || 0; renderInsights(); };
+  if ($('#ifSort')) $('#ifSort').onchange = e => { IF.sort = e.target.value; renderInsights(); };
+}
 function renderInsights() {
-  const cards = [];
+  const allCards = [];
   (board.team_streaks || []).forEach((t, i) => {
     const g = board.games.find(x => x.id === t.game);
     const logo = g ? (g.home === t.team ? g.home_logo : g.away_logo) : null;
     const pct = t.hits / t.n;
     const color = INSIGHT_COLORS[t.kind];
     const kindLabel = t.kind === 'ats' ? 'ATS' : 'O/U';
+    const histHits = (t.games || []).map(([, , , res]) => res === t.dir);
     const gameRows = (t.games || []).slice().reverse().map(([season, week, opp, res]) => {
       const hit = res === t.dir;
       const label = t.kind === 'ats' ? (res === 'W' ? 'Covered' : 'No cover') : (res === 'O' ? 'Over' : 'Under');
       return `<tr><td>${season} Wk ${week}</td><td>vs ${esc(opp)}</td><td class="${hit ? 'g' : 'r'}">${label}</td></tr>`;
     }).join('');
-    cards.push({ pct, html: `<div class="chartcard insight-team" data-i="${i}" style="margin-bottom:14px;padding:20px 22px;cursor:pointer;border-left:4px solid ${color}">
+    let marketLabel;
+    if (t.kind === 'ats') {
+      const hs = g ? g.home_spread : null;
+      const sp = hs != null ? (g.home === t.team ? hs : -hs) : null;
+      marketLabel = sp != null ? `${t.team} ${sp > 0 ? '+' : ''}${sp}` : `${t.team} Spread`;
+    } else {
+      marketLabel = `${t.dir === 'O' ? 'Over' : 'Under'}${g && g.total ? ' ' + g.total : ''}`;
+    }
+    const mrowId = `it-${i}`;
+    allCards.push({ type: 'team', team: teamCode(t.team), game: t.game, pct, when: g ? g.date : null, label: t.team,
+      html: `<div class="chartcard insight-card" style="margin-bottom:14px;padding:20px 22px;border-left:4px solid ${color}">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
         ${timg(t.team, logo, 44)}
         <div style="flex:1;min-width:0">
@@ -1683,12 +1774,13 @@ function renderInsights() {
           <div class="muted" style="font-size:12px">${g ? fmtTime(g.date) : ''}</div>
         </div>
       </div>
-      <div style="font-weight:700;font-size:16px;line-height:1.4;margin-bottom:12px">${esc(t.text)}</div>
-      <div style="display:flex;align-items:center;gap:12px">
-        <div class="wltrack" style="flex:1;height:10px"><div class="wlfill on" style="width:${Math.round(pct * 100)}%;background:${color}"></div></div>
-        <div style="font-size:15px;font-weight:700;min-width:44px;text-align:right;color:${color}">${t.hits}/${t.n}</div>
+      <div style="font-weight:700;font-size:16px;line-height:1.4">${esc(t.text)}</div>
+      <div class="insight-mrow" data-mrow="${mrowId}">
+        <span class="chev">▸</span><span class="ml">${esc(marketLabel)}</span>
+        ${insightHistoryBar(histHits)}
+        <span class="pct" style="color:${color}">${Math.round(pct * 100)}%</span>
       </div>
-      <div class="insight-detail" hidden style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+      <div class="insight-detail" id="${mrowId}" hidden style="margin-top:14px">
         <table class="recent"><tr class="muted"><th>Game</th><th>Opponent</th><th>Result</th></tr>${gameRows}</table>
       </div></div>` });
   });
@@ -1700,7 +1792,12 @@ function renderInsights() {
     const color = INSIGHT_COLORS.player;
     const g = board.games.find(x => x.id === p.game);
     const logo = g ? (teamCode(g.home) === p.team ? g.home_logo : g.away_logo) : null;
-    cards.push({ pct: Math.min(1, count / 12), html: `<a href="#/p/${encodeURIComponent(p.id)}" class="chartcard" style="display:block;margin-bottom:14px;padding:20px 22px;text-decoration:none;color:inherit;border-left:4px solid ${color}">
+    const last10 = p.log.slice(-10);
+    const histHits = last10.map(x => x[3] > line);
+    const pct = histHits.length ? histHits.filter(Boolean).length / histHits.length : 0;
+    const mrowId = `ip-${p.id}`;
+    allCards.push({ type: 'player', team: p.team, game: p.game, pct, when: g ? g.date : null, label: p.player,
+      html: `<div class="chartcard insight-card insight-nav" data-nav="#/p/${encodeURIComponent(p.id)}" style="margin-bottom:14px;padding:20px 22px;border-left:4px solid ${color};cursor:pointer">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
         ${pimg(p.player, p.img, 44)}
         <div style="flex:1;min-width:0">
@@ -1714,17 +1811,51 @@ function renderInsights() {
         </div>
       </div>
       <div style="font-weight:700;font-size:16px;line-height:1.4">Has cleared ${desc} in <span style="color:${color}">${count} straight games</span>.</div>
-    </a>` });
+      <div class="insight-mrow" data-mrow="${mrowId}">
+        <span class="chev">▸</span><span class="ml">${desc}</span>
+        ${insightHistoryBar(histHits)}
+        <span class="pct" style="color:${color}">${Math.round(pct * 100)}%</span>
+        ${p.over != null ? `<span class="insight-odds">${fmtOdds(p.over)}<button class="qbtn addbtn ${inSlip(p, line, 'over') ? 'on' : ''}"
+          data-id="${esc(p.id)}" data-t="${line}" data-side="over"
+          title="${inSlip(p, line, 'over') ? 'Remove from parlay slip' : `Add Over ${line} to your parlay`}">${inSlip(p, line, 'over') ? '✓' : '+'}</button></span>` : ''}
+      </div>
+      <div class="insight-detail" id="${mrowId}" hidden style="margin-top:14px">
+        <table class="recent"><tr class="muted"><th>Game</th><th>Opponent</th><th>Result</th></tr>${last10.slice().reverse().map(x =>
+          `<tr><td>${x[0]}${x[1] != null && SPORT !== 'nba' && SPORT !== 'nhl' ? ' Wk ' + x[1] : ''}</td><td>vs ${esc(x[2])}</td><td class="${x[3] > line ? 'g' : 'r'}">${fmtNum(x[3])}</td></tr>`).join('')}</table>
+      </div></div>` });
   });
-  cards.sort((a, b) => b.pct - a.pct);
+  let cards = allCards.filter(c =>
+    (!IF.type || c.type === IF.type) && (!IF.team || c.team === IF.team) &&
+    (!IF.game || c.game === IF.game) && (c.pct * 100 >= IF.minhit));
+  if (IF.sort === 'soon') cards.sort((a, b) => (a.when || '').localeCompare(b.when || ''));
+  else if (IF.sort === 'az') cards.sort((a, b) => a.label.localeCompare(b.label));
+  else cards.sort((a, b) => b.pct - a.pct);
   $('#insightsView').innerHTML = `
     <a class="back" href="#/">← Back to board</a>
     <h2 style="margin:14px 0 4px">Insights</h2>
     <p class="muted" style="margin:0 0 16px">Real streaks surfaced automatically — team against-the-spread/over-under runs and player prop streaks. Not predictions, just what already happened.</p>
+    <div class="filters">
+      <button class="btn" id="btnInsightsFilters">Filters <b id="insightsFiltersCount">${insightsFiltersActiveCount()}</b></button>
+      <span class="muted small">${cards.length}/${allCards.length} Insights</span>
+    </div>
     ${cards.length ? cards.map(c => c.html).join('')
-      : '<div class="empty"><div class="ic">📊</div><div class="msg">No notable streaks right now</div><div class="sub">Check back once more of this week’s games are locked in.</div></div>'}`;
-  document.querySelectorAll('.insight-team').forEach(el => el.onclick = () => {
-    el.querySelector('.insight-detail').hidden = !el.querySelector('.insight-detail').hidden;
+      : `<div class="empty"><div class="ic">📊</div><div class="msg">No matching insights</div><div class="sub">${allCards.length ? 'Try widening or clearing a filter.' : 'Check back once more of this week’s games are locked in.'}</div></div>`}`;
+  $('#btnInsightsFilters').onclick = () => { IFILTERS_OPEN = !IFILTERS_OPEN; renderInsightsFilters(allCards); };
+  renderInsightsFilters(allCards);
+  document.querySelectorAll('#insightsView .insight-mrow').forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    const id = el.dataset.mrow, detail = document.getElementById(id);
+    if (!detail) return;
+    detail.hidden = !detail.hidden;
+    el.classList.toggle('open', !detail.hidden);
+  });
+  document.querySelectorAll('#insightsView .insight-nav').forEach(el => el.onclick = () => { location.hash = el.dataset.nav; });
+  document.querySelectorAll('#insightsView .addbtn').forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    const p = board.props.find(x => x.id === el.dataset.id);
+    const t = +el.dataset.t;
+    const realOdds = (p.src === 'book' && t === p.line) ? p.over : null;
+    toggleLeg(p, t, 'over', realOdds);
   });
 }
 
@@ -1824,10 +1955,10 @@ function refreshChips() {
 }
 // re-style the board's + and player-page's + button in place, same reason as refreshChips
 function refreshBoardAddButtons() {
-  document.querySelectorAll('#tbody .addbtn, #pvMain .addbtn').forEach(el => {
+  document.querySelectorAll('#tbody .addbtn, #pvMain .addbtn, #insightsView .addbtn').forEach(el => {
     const p = board.props.find(x => x.id === el.dataset.id);
     if (!p) return;
-    const t = +el.dataset.t, side = el.dataset.side;
+    const t = +el.dataset.t, side = el.dataset.side || 'over';
     const on = inSlip(p, t, side);
     el.classList.toggle('on', on);
     el.textContent = on ? '✓' : '+';
