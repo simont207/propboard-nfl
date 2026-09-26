@@ -160,6 +160,17 @@
   .gbadge .t { font-size: 12px; color: var(--muted); text-align: center; }
   .chartcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 10px;
     margin-top: 14px; }
+  .cmp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .cmp-empty { text-align: center; padding: 20px 0; }
+  .cmp-search { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .cmp-results { margin-top: 4px; }
+  .cmp-result { padding: 8px 10px; cursor: pointer; border-radius: 6px; font-size: 13px; }
+  .cmp-result:hover { background: var(--panel2); }
+  .cmp-table { width: 100%; border-collapse: collapse; }
+  .cmp-table td { padding: 10px; border-bottom: 1px solid var(--line); text-align: center; font-size: 13px; }
+  .cmp-table td:first-child { text-align: left; color: var(--muted); width: 30%; }
+  .cmp-table td.g { color: var(--green); font-weight: 700; } .cmp-table td.r { color: var(--red); }
+  @media (max-width: 600px) { .cmp-grid { grid-template-columns: 1fr; } }
   .zonewrap { display: flex; gap: 14px; flex-wrap: wrap; }
   .zonegrid { flex: 1 1 240px; max-width: 320px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .zonerow { display: grid; grid-template-columns: repeat(3, 1fr); }
@@ -435,6 +446,7 @@ window.onerror = function (msg, src, line) {
   <div class="pv-grid"><aside class="pv-side" id="pvSide"></aside><section class="pv-main" id="pvMain"></section></div>
 </div>
 <div id="gameView" hidden></div>
+<div id="compareView" hidden></div>
 </main>
 <footer class="disc">
   <details class="howworks">
@@ -937,13 +949,22 @@ function setLine(p, raw) {
 
 function showView(v) {
   $('#boardView').hidden = v !== 'board'; $('#playerView').hidden = v !== 'player'; $('#gameView').hidden = v !== 'game';
+  $('#compareView').hidden = v !== 'compare';
 }
 function route() {
   if (!board) return;
   const pm = location.hash.match(/^#\/p\/(.+)$/), gm = location.hash.match(/^#\/g\/(.+)$/);
+  const cm = location.hash.match(/^#\/compare(?:\/(.*))?$/);
   const p = pm && board.props.find(x => x.id === decodeURIComponent(pm[1]));
   const g = gm && board.games.find(x => x.id === decodeURIComponent(gm[1]));
   const wasBoard = !$('#boardView').hidden;
+  if (cm) {
+    if (wasBoard) route.y = window.scrollY;
+    showView('compare');
+    const parts = (cm[1] || '').split('/');
+    renderCompare(parts[0] ? decodeURIComponent(parts[0]) : null, parts[1] ? decodeURIComponent(parts[1]) : null);
+    return;
+  }
   if (!p && !g) {
     showView('board');
     if (!wasBoard && route.y != null) window.scrollTo(0, route.y);
@@ -1112,6 +1133,7 @@ function renderPlayer(p) {
   const sharpHtml = (p.market === 'q1_rec' || p.market === 'q1_rush') ? sharpCard(p) : '';
   const ti = p.tier;
   $('#pvMain').innerHTML = `
+    <div style="text-align:right;margin-bottom:6px"><a href="#/compare/${encodeURIComponent(p.id)}" class="btn" style="display:inline-block;font-size:12px;padding:5px 10px">⇄ Compare</a></div>
     <div class="tabs">${board.props.filter(x => x.pid === p.pid && x.game === p.game).map(x =>
       `<button class="pill ${x.id === p.id ? 'on' : ''}" data-id="${esc(x.id)}">${esc(x.label)}</button>`).join('')}</div>
     <div class="hero">
@@ -1459,6 +1481,76 @@ const legText = l => {
   return `${l.mlabel} ${side === 'over' ? l.thr + '+' : 'Under ' + l.thr}`;
 };
 
+function renderCompare(id1, id2) {
+  const p1 = id1 && board.props.find(x => x.id === id1);
+  const p2 = id2 && board.props.find(x => x.id === id2);
+  const statRow = (label, v1, v2, cls1 = '', cls2 = '') =>
+    `<tr><td>${label}</td><td class="${cls1}">${v1}</td><td class="${cls2}">${v2}</td></tr>`;
+  const cmpCls = (a, b) => a == null || b == null || a === b ? '' : a > b ? 'g' : 'r';
+  const card = p => {
+    const o = derive(p), rk = p.opp_rank, rn = poolN(p.pos, p.market), gr = gradeOf(rk, F.side, rn);
+    return { p, o, gr, rk, rn };
+  };
+  const c1 = p1 ? card(p1) : null, c2 = p2 ? card(p2) : null;
+  const sideLbl = F.side === 'over' ? 'Over' : 'Under';
+  const evOf = c => c ? (F.side === 'over' ? c.p.ev_over : c.p.ev_under) : null;
+  const header = c => !c ? '<div class="cmp-empty muted">–</div>' : `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center">
+      ${pimg(c.p.player, c.p.img, 48)}<b>${esc(c.p.player)}</b>
+      <span class="muted" style="font-size:12px">${esc(c.p.pos)} · ${esc(c.p.team)} ${c.p.home ? 'vs' : '@'} ${esc(c.p.opp)}</span>
+      <span style="font-weight:700">${esc(c.p.label)} · ${sideLbl} ${c.o.line}</span></div>`;
+  const rows = (c1 || c2) ? `<table class="cmp-table">
+      ${statRow('L5 hit rate', c1 && c1.o.r.l5.n ? `${Math.round(c1.o.r.l5.pct)}% <span class="muted">${c1.o.r.l5.hits}/${c1.o.r.l5.n}</span>` : '–',
+        c2 && c2.o.r.l5.n ? `${Math.round(c2.o.r.l5.pct)}% <span class="muted">${c2.o.r.l5.hits}/${c2.o.r.l5.n}</span>` : '–',
+        cmpCls(c1 && c1.o.r.l5.pct, c2 && c2.o.r.l5.pct), cmpCls(c2 && c2.o.r.l5.pct, c1 && c1.o.r.l5.pct))}
+      ${statRow('L10 hit rate', c1 && c1.o.r.l10.n ? `${Math.round(c1.o.r.l10.pct)}% <span class="muted">${c1.o.r.l10.hits}/${c1.o.r.l10.n}</span>` : '–',
+        c2 && c2.o.r.l10.n ? `${Math.round(c2.o.r.l10.pct)}% <span class="muted">${c2.o.r.l10.hits}/${c2.o.r.l10.n}</span>` : '–',
+        cmpCls(c1 && c1.o.r.l10.pct, c2 && c2.o.r.l10.pct), cmpCls(c2 && c2.o.r.l10.pct, c1 && c1.o.r.l10.pct))}
+      ${statRow('Season hit rate', c1 && c1.o.r.season.n ? `${Math.round(c1.o.r.season.pct)}% <span class="muted">${c1.o.r.season.hits}/${c1.o.r.season.n}</span>` : '–',
+        c2 && c2.o.r.season.n ? `${Math.round(c2.o.r.season.pct)}% <span class="muted">${c2.o.r.season.hits}/${c2.o.r.season.n}</span>` : '–',
+        cmpCls(c1 && c1.o.r.season.pct, c2 && c2.o.r.season.pct), cmpCls(c2 && c2.o.r.season.pct, c1 && c1.o.r.season.pct))}
+      ${statRow('Matchup', c1 && c1.gr ? `${c1.gr.L} <span class="muted">${ord(c1.rk)} of ${c1.rn}</span>` : '–',
+        c2 && c2.gr ? `${c2.gr.L} <span class="muted">${ord(c2.rk)} of ${c2.rn}</span>` : '–')}
+      ${(c1 && c1.p.zone_edge != null) || (c2 && c2.p.zone_edge != null) ? statRow('Zone Edge',
+        c1 && c1.p.zone_edge != null ? Math.round(c1.p.zone_edge) + '%' : '–', c2 && c2.p.zone_edge != null ? Math.round(c2.p.zone_edge) + '%' : '–',
+        cmpCls(c1 && c1.p.zone_edge, c2 && c2.p.zone_edge), cmpCls(c2 && c2.p.zone_edge, c1 && c1.p.zone_edge)) : ''}
+      ${statRow('Real book EV', evOf(c1) != null ? (evOf(c1) >= 0 ? '+' : '') + evOf(c1).toFixed(0) + '%' : '–',
+        evOf(c2) != null ? (evOf(c2) >= 0 ? '+' : '') + evOf(c2).toFixed(0) + '%' : '–',
+        cmpCls(evOf(c1), evOf(c2)), cmpCls(evOf(c2), evOf(c1)))}
+      ${statRow('Status', c1 ? (c1.p.inj || 'Active') : '–', c2 ? (c2.p.inj || 'Active') : '–')}
+    </table>` : '';
+  const search = slot => `<div style="margin-top:10px"><input class="cmp-search" data-slot="${slot}" placeholder="Search a player to compare…" autocomplete="off">
+    <div class="cmp-results" data-slot="${slot}"></div></div>`;
+  $('#compareView').innerHTML = `
+    <a class="back" href="#/">← Back to board</a>
+    <h2 style="margin:14px 0 4px">Compare players</h2>
+    <p class="muted" style="margin:0 0 16px">Pick any two props to see them side by side.</p>
+    <div class="cmp-grid">
+      <div class="chartcard">${header(c1)}${!c1 ? search('1') : `<button class="btn" style="margin-top:10px;width:100%" data-slot="1">Change</button>`}</div>
+      <div class="chartcard">${header(c2)}${!c2 ? search('2') : `<button class="btn" style="margin-top:10px;width:100%" data-slot="2">Change</button>`}</div>
+    </div>
+    ${rows ? `<div class="chartcard" style="margin-top:14px;overflow-x:auto">${rows}</div>` : ''}`;
+  document.querySelectorAll('[data-slot]').forEach(el => {
+    if (el.tagName === 'BUTTON') {
+      el.onclick = () => {
+        const keep = el.dataset.slot === '1' ? id2 : id1;
+        location.hash = el.dataset.slot === '1' ? `#/compare/${keep ? '/' + encodeURIComponent(keep) : ''}` : `#/compare/${id1 ? encodeURIComponent(id1) : ''}`;
+      };
+    } else if (el.tagName === 'INPUT') {
+      el.oninput = () => {
+        const slot = el.dataset.slot, q = el.value.toLowerCase().trim();
+        const results = document.querySelector(`.cmp-results[data-slot="${slot}"]`);
+        if (!q) { results.innerHTML = ''; return; }
+        const matches = board.props.filter(p => p.player.toLowerCase().includes(q)).slice(0, 8);
+        results.innerHTML = matches.map(p => `<div class="cmp-result" data-id="${esc(p.id)}">${esc(p.player)} <span class="muted">${esc(p.label)} · ${esc(p.team)}</span></div>`).join('');
+        results.querySelectorAll('.cmp-result').forEach(r => r.onclick = () => {
+          const newId1 = slot === '1' ? r.dataset.id : (id1 || '');
+          const newId2 = slot === '2' ? r.dataset.id : (id2 || '');
+          location.hash = `#/compare/${encodeURIComponent(newId1)}/${encodeURIComponent(newId2)}`;
+        });
+      };
+    }
+  });
+}
 function renderGame(g) {
   const home = teamCode(g.home), away = teamCode(g.away);
   const all = board.props.filter(x => x.game === g.id && !['Out', 'Doubtful'].includes(x.inj));
