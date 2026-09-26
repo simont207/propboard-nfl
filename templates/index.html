@@ -1658,29 +1658,37 @@ function playerStreaks() {
   return out.slice(0, 15);
 }
 
+const INSIGHT_COLORS = { ats: '#60a5fa', ou: '#fbbf24', player: '#4ade80' };
 function renderInsights() {
   const cards = [];
   (board.team_streaks || []).forEach((t, i) => {
     const g = board.games.find(x => x.id === t.game);
     const logo = g ? (g.home === t.team ? g.home_logo : g.away_logo) : null;
     const pct = t.hits / t.n;
+    const color = INSIGHT_COLORS[t.kind];
+    const kindLabel = t.kind === 'ats' ? 'ATS' : 'O/U';
     const gameRows = (t.games || []).slice().reverse().map(([season, week, opp, res]) => {
       const hit = res === t.dir;
       const label = t.kind === 'ats' ? (res === 'W' ? 'Covered' : 'No cover') : (res === 'O' ? 'Over' : 'Under');
       return `<tr><td>${season} Wk ${week}</td><td>vs ${esc(opp)}</td><td class="${hit ? 'g' : 'r'}">${label}</td></tr>`;
     }).join('');
-    cards.push({ pct, html: `<div class="chartcard insight-team" data-i="${i}" style="margin-bottom:10px;padding:14px 16px;cursor:pointer">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-        ${timg(t.team, logo, 32)}
-        <div><div style="font-weight:600;font-size:13px">${esc(t.team)} vs ${esc(t.opp)}</div>
-        <div class="muted" style="font-size:11px">${g ? fmtTime(g.date) : ''}</div></div>
+    cards.push({ pct, html: `<div class="chartcard insight-team" data-i="${i}" style="margin-bottom:14px;padding:20px 22px;cursor:pointer;border-left:4px solid ${color}">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+        ${timg(t.team, logo, 44)}
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-weight:700;font-size:17px">${esc(t.team)} vs ${esc(t.opp)}</span>
+            <span style="font-size:10px;font-weight:700;letter-spacing:.04em;color:${color};border:1px solid ${color};padding:2px 7px;border-radius:999px">${kindLabel}</span>
+          </div>
+          <div class="muted" style="font-size:12px">${g ? fmtTime(g.date) : ''}</div>
+        </div>
       </div>
-      <div style="font-weight:600;margin-bottom:8px">${esc(t.text)}</div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <div class="wltrack" style="flex:1"><div class="wlfill on" style="width:${Math.round(pct * 100)}%"></div></div>
-        <div class="muted" style="font-size:12px;min-width:36px;text-align:right">${t.hits}/${t.n}</div>
+      <div style="font-weight:700;font-size:16px;line-height:1.4;margin-bottom:12px">${esc(t.text)}</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="wltrack" style="flex:1;height:10px"><div class="wlfill on" style="width:${Math.round(pct * 100)}%;background:${color}"></div></div>
+        <div style="font-size:15px;font-weight:700;min-width:44px;text-align:right;color:${color}">${t.hits}/${t.n}</div>
       </div>
-      <div class="insight-detail" hidden style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+      <div class="insight-detail" hidden style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
         <table class="recent"><tr class="muted"><th>Game</th><th>Opponent</th><th>Result</th></tr>${gameRows}</table>
       </div></div>` });
   });
@@ -1689,13 +1697,23 @@ function renderInsights() {
     // label ("Q1 Rush 5+", "Anytime TD") -- appending the raw 4.5/0.5 line on top would be redundant
     // and confusing, so only real/estimated-line markets get the "45.5+" prefix.
     const desc = p.src === 'fixed' ? esc(p.label) : `${line}+ ${esc(p.label.toLowerCase())}`;
-    cards.push({ pct: Math.min(1, count / 12), html: `<a href="#/p/${encodeURIComponent(p.id)}" class="chartcard" style="display:block;margin-bottom:10px;padding:14px 16px;text-decoration:none;color:inherit">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-        ${pimg(p.player, p.img, 32)}
-        <div><div style="font-weight:600;font-size:13px">${esc(p.player)}</div>
-        <div class="muted" style="font-size:11px">${esc(p.pos)} · ${esc(p.team)} ${p.home ? 'vs' : '@'} ${esc(p.opp)}</div></div>
+    const color = INSIGHT_COLORS.player;
+    const g = board.games.find(x => x.id === p.game);
+    const logo = g ? (teamCode(g.home) === p.team ? g.home_logo : g.away_logo) : null;
+    cards.push({ pct: Math.min(1, count / 12), html: `<a href="#/p/${encodeURIComponent(p.id)}" class="chartcard" style="display:block;margin-bottom:14px;padding:20px 22px;text-decoration:none;color:inherit;border-left:4px solid ${color}">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+        ${pimg(p.player, p.img, 44)}
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-weight:700;font-size:17px">${esc(p.player)}</span>
+            <span style="font-size:10px;font-weight:700;letter-spacing:.04em;color:${color};border:1px solid ${color};padding:2px 7px;border-radius:999px">STREAK</span>
+          </div>
+          <div class="muted" style="font-size:12px;display:flex;align-items:center;gap:6px">
+            ${timg(p.team, logo, 16)} ${esc(p.pos)} · ${esc(p.team)} ${p.home ? 'vs' : '@'} ${esc(p.opp)}
+          </div>
+        </div>
       </div>
-      <div style="font-weight:600">Has cleared ${desc} in ${count} straight games.</div>
+      <div style="font-weight:700;font-size:16px;line-height:1.4">Has cleared ${desc} in <span style="color:${color}">${count} straight games</span>.</div>
     </a>` });
   });
   cards.sort((a, b) => b.pct - a.pct);
