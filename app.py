@@ -939,6 +939,79 @@ def roster_activity(inj, inj_week, cur, snap_avg):
     return out
 
 
+PRACTICE_LABELS = {
+    "Full Participation in Practice": "practiced fully",
+    "Limited Participation in Practice": "limited in practice",
+    "Did Not Participate in Practice": "did not practice",
+}
+
+
+def _timeline_text(injury, status, practice):
+    label = injury if injury and not pd.isna(injury) else "Injury report"
+    text = f"{label} — {status}"
+    if practice and not pd.isna(practice):
+        text += f" ({PRACTICE_LABELS.get(practice, practice.lower())})"
+    return text
+
+
+def load_season_timelines(df, inj, games, latest):
+    """Per-player season participation: a dot per scheduled week (played/missed/upcoming) for his own
+    team's games (byes excluded), plus a consolidated history of real injury-report designations.
+    A missing week with no stat line is shown as "missed" regardless of the exact reason -- most of the
+    time that's the injury report below it, but the dot itself doesn't require guessing why."""
+    f = DATA / "games.csv"
+    try:
+        g = pd.read_csv(f, usecols=["season", "week", "home_team", "away_team"])
+    except Exception:
+        return {}
+    g = g[g.season == SEASON]
+    team_weeks = {}
+    for r in g.itertuples():
+        team_weeks.setdefault(r.home_team, set()).add(int(r.week))
+        team_weeks.setdefault(r.away_team, set()).add(int(r.week))
+
+    cur_week = min((gm["week"] for gm in games), default=99)
+    cur = df[df.season == SEASON]
+    played = cur.groupby("player_id").week.apply(set).to_dict()
+
+    inj_cur = inj[inj.season == SEASON].sort_values("week") if len(inj) else inj
+    inj_groups = dict(list(inj_cur.groupby("gsis_id"))) if len(inj_cur) else {}
+
+    out = {}
+    for pid, prow in latest.iterrows():
+        weeks = sorted(team_weeks.get(prow.team, set()))
+        if not weeks:
+            continue
+        p_played = played.get(pid, set())
+        dots = [{"week": wk, "status": (
+            "upcoming" if wk >= cur_week else "played" if wk in p_played else "missed"
+        )} for wk in weeks]
+
+        history = []
+        rows = inj_groups.get(pid)
+        if rows is not None and len(rows):
+            span = None
+            for r in rows.itertuples():
+                key = (r.report_status, r.report_primary_injury)
+                if span and span["key"] == key and r.week == span["end"] + 1:
+                    span["end"] = r.week
+                    span["row"] = r
+                else:
+                    if span:
+                        history.append(span)
+                    span = {"key": key, "start": r.week, "end": r.week, "row": r}
+            if span:
+                history.append(span)
+        history_out = [{
+            "weeks": f"Wk {s['start']}" if s["start"] == s["end"] else f"Wk {s['start']}–{s['end']}",
+            "status": s["row"].report_status,
+            "text": _timeline_text(s["row"].report_primary_injury, s["row"].report_status, s["row"].practice_status),
+        } for s in history]
+
+        out[pid] = {"dots": dots, "history": history_out}
+    return out
+
+
 def load_starting_qbs():
     f = DATA / f"depth{SEASON}.parquet"
     if not download(f"{NFLVERSE}/depth_charts/depth_charts_{SEASON}.parquet", f, 3):
@@ -1071,6 +1144,7 @@ def build_board():
     roster_act = roster_activity(inj, inj_week, cur, load_snap_avg())
     zones_player, zones_def = load_zones()
     zf = zone_fit(games, latest, zones_player, zones_def)
+    timelines = load_season_timelines(df, inj, games, latest)
 
     rows = []
     for g in games:
@@ -1110,6 +1184,7 @@ def build_board():
                         "ev_over": None, "ev_under": None, "real_alts": [], "fair_line": None,
                         "zone_edge": zone_edge(pid, o, zones_player, zones_def) if mkey in ZONE_MARKETS else None,
                         "opp_rest": rest.get((o, g["id"])),
+                        "timeline": timelines.get(pid),
                     }
                     books = odds["lines"].get(f"{norm_name(p.player_display_name)}|{mkey}")
                     if books:
