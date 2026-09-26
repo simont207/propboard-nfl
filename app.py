@@ -353,6 +353,80 @@ def load_rest_days(games):
     return out
 
 
+def team_situational_streaks(games):
+    """Real against-the-spread and over/under streaks: for each upcoming game, bucket each team by its
+    role (home/away x favorite/underdog) for THAT game, then look at its own history in the exact same
+    role this + last season -- only surfaced when it's a genuinely one-sided run (80%+ one direction,
+    min 5 qualifying games), same "don't flag ordinary noise" bar as the trend/signal features."""
+    f = DATA / "games.csv"
+    try:
+        g = pd.read_csv(f, usecols=["season", "week", "home_team", "away_team", "home_score",
+                                     "away_score", "result", "total", "spread_line", "total_line"])
+    except Exception:
+        return []
+    g = g[(g.season >= SEASON - 1) & g.result.notna() & g.spread_line.notna()]
+
+    rows = []
+    for r in g.itertuples():
+        cover = r.result - r.spread_line          # >0 home covered, <0 away covered, 0 push
+        ou = None if pd.isna(r.total_line) or r.total == r.total_line else ("O" if r.total > r.total_line else "U")
+        rows.append({"team": r.home_team, "season": r.season, "week": r.week, "fav": r.spread_line > 0,
+                      "ats": None if cover == 0 else ("W" if cover > 0 else "L"), "ou": ou})
+        rows.append({"team": r.away_team, "season": r.season, "week": r.week, "fav": r.spread_line < 0,
+                      "ats": None if cover == 0 else ("W" if cover < 0 else "L"), "ou": ou})
+    hist = pd.DataFrame(rows).sort_values(["team", "season", "week"])
+
+    def streak(vals):
+        """vals is chronological W/L (or O/U) strings, already filtered to one role bucket. Returns
+        (hits, n, direction) over the most recent 10 qualifying games, or None if it's not one-sided
+        enough (80%+) to matter."""
+        vals = [v for v in vals if v][-10:]
+        n = len(vals)
+        if n < 5:
+            return None
+        w, l = vals.count("W"), vals.count("L")
+        if w and w / n >= 0.8:
+            return w, n, "W"
+        if l and l / n >= 0.8:
+            return l, n, "L"
+        return None
+
+    out = []
+    for gm in games:
+        for side, team_espn, opp_espn in (("home", gm["home"], gm["away"]), ("away", gm["away"], gm["home"])):
+            team = ESPN_TO_NFLVERSE.get(team_espn, team_espn)
+            hs = gm.get("home_spread")
+            if hs is None:
+                continue
+            fav = (hs < 0) if side == "home" else (hs > 0)
+            grp = hist[(hist.team == team) & (hist.fav == fav)]
+            article = "an" if side == "away" else "a"
+            role = f"{article} {side} {'favorite' if fav else 'underdog'}"
+
+            ats = streak(grp.ats.tolist())
+            if ats:
+                hits, n, d = ats
+                verb = "covered the spread" if d == "W" else "failed to cover the spread"
+                straight = " straight" if hits == n else ""
+                out.append({
+                    "kind": "ats", "team": team_espn, "opp": opp_espn, "game": gm["id"],
+                    "text": f"{team_espn} {verb} in {hits} of their last {n}{straight} games as {role}.",
+                    "hits": hits, "n": n,
+                })
+            ou_vals = ["W" if v == "O" else "L" if v == "U" else None for v in grp.ou.tolist()]
+            ou = streak(ou_vals)
+            if ou:
+                hits, n, d = ou
+                word = "over" if d == "W" else "under"
+                straight = " straight" if hits == n else ""
+                out.append({
+                    "kind": "ou", "team": team_espn, "opp": opp_espn, "game": gm["id"],
+                    "text": f"The {word} has hit in {hits} of {team_espn}'s last {n}{straight} games as {role}.",
+                    "hits": hits, "n": n,
+                })
+    return out
+
+
 def load_injuries():
     f = DATA / f"inj{SEASON}.parquet"
     if not download(f"{NFLVERSE}/injuries/injuries_{SEASON}.parquet", f, 3):
@@ -1134,6 +1208,7 @@ def build_board():
     games = get_games()
     weather = load_weather(games)
     rest = load_rest_days(games)
+    team_streaks = team_situational_streaks(games)
     for g in games:
         g["weather"] = weather.get(g["id"])
     inj, inj_week, inj_latest = load_injuries()
@@ -1227,7 +1302,7 @@ def build_board():
 
     return {
         "season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
-        "recent_players": recent_players, "usage": usage,
+        "recent_players": recent_players, "usage": usage, "team_streaks": team_streaks,
         "roster_activity": roster_act, "zones_player": zones_player, "zones_def": zones_def, "zone_fit": zf,
         "has_key": bool(load_config().get("odds_key")),
         "odds_pulled": odds["pulled"], "odds_remaining": odds["remaining"],
