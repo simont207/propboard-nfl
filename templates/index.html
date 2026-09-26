@@ -280,8 +280,6 @@
   .altbtn:hover { border-color: var(--green-dim); }
   .ev { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
   .ev.g { background: #123524; color: var(--green); } .ev.r { background: #4a1d1d; color: var(--red); }
-  .bestprice { font-size: 11px; color: var(--green); margin-top: 3px; white-space: nowrap; }
-  .bestprice b { font-weight: 700; }
   .ev.n { background: var(--panel2); color: var(--muted); }
 
   /* parlay slip */
@@ -697,17 +695,6 @@ function evBadge(p, side) {
   const cls = ev >= 3 ? 'g' : ev <= -3 ? 'r' : 'n';
   return ` <span class="ev ${cls}" title="Expected value of a $1 bet at this price, vs SportsGameOdds' fair line">${ev > 0 ? '+' : ''}${ev}% EV</span>`;
 }
-// Shopping hint: a different book paying strictly better odds for this side, among books that agree
-// with each other on a line (not necessarily the line shown here, which can be our own estimate when
-// no consensus line was posted -- the book's own line is always shown alongside its price so nothing
-// is implied about it being the exact same bet).
-function bestPriceHint(p, side) {
-  const best = side === 'over' ? p.best_over : p.best_under;
-  const shown = side === 'over' ? p.over : p.under;
-  if (!best || best[side] == null || (shown != null && best[side] <= shown)) return '';
-  return `<div class="bestprice" title="${esc(best.book)} pays better odds for the ${side === 'over' ? 'Over' : 'Under'} at their own line of ${best.line}">
-    Better at <b>${esc(best.book)}</b>: ${fmtOdds(best[side])} @ ${best.line}</div>`;
-}
 const fmtNum = n => n == null ? '–' : (Number.isInteger(n) ? n : n.toFixed(1));
 const ord = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({1:'st',2:'nd',3:'rd'}[n % 10] || 'th'));
 function hitCell(x) {
@@ -842,7 +829,7 @@ function render() {
         <button class="qbtn addbtn ${onCur ? 'on' : ''}" data-id="${esc(p.id)}" data-t="${d.line}" data-side="${F.side}"
           title="${onCur ? 'Remove from parlay slip' : `Add ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} to your parlay`}">${onCur ? '✓' : '+'}</button>
         ${F.altLinesOpen ? '' : `<button class="qbtn altbtn ${expanded ? 'on' : ''}" data-id="${esc(p.id)}" title="Show alt lines for this prop">Alt${expanded ? ' ▴' : ' ▾'}</button>`}</td>
-      <td>${fmtOdds(odds)}${evBadge(p, F.side)}${bestPriceHint(p, F.side)}</td>
+      <td>${fmtOdds(odds)}${evBadge(p, F.side)}</td>
       ${hitCell(d.r.l5)}${hitCell(d.r.l10)}${hitCell(d.r.season)}${hitCell(d.r.h2h)}
       <td class="rank">${fmtNum(d.avg)}</td>
       <td class="rank ${rkc}">${rk ? ord(rk) : '–'} ${(() => { const gr = gradeOf(rk, F.side, rn); return gr ? `<span class="grade ${gr.cls}">${gr.L}</span>` : ''; })()}${p.zone_edge != null ? `<span class="zbadge" title="Zone Edge: ${p.zone_edge}% of his targets land in zones where ${esc(p.opp)} is weak">Z ${Math.round(p.zone_edge)}%</span>` : ''}</td>
