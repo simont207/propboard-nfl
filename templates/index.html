@@ -1153,6 +1153,7 @@ function renderPlayer(p) {
   // matchup insights numbers
   const dv = board.dvp[`${p.pos}|${p.market}`], t = dv?.teams[p.opp];
   const recent = board.recent[`${p.opp}|${p.pos}|${p.market}`] || [];
+  const recentPlayers = (board.recent_players && board.recent_players[`${p.opp}|${p.pos}|${p.market}`]) || [];
   const oppLogo = g ? (p.home ? g.away_logo : g.home_logo) : null;
   const h2h = p.log.filter(x => x[2] === p.opp);
   const implied = total != null && gm != null ? total / 2 + gm / 2 : null;
@@ -1311,6 +1312,10 @@ function renderPlayer(p) {
         ${recent.length ? `<h4 style="margin:16px 0 4px">${esc(p.opp)}'s last ${recent.length} games vs ${posName}</h4><table class="recent">
           <tr class="muted"><th>Game</th><th>All ${posName}</th><th>Top performer</th></tr>
           ${recent.slice().reverse().map(r => `<tr><td>${SPORT === 'nba' || SPORT === 'nhl' ? '' : `Wk ${r[1]} `}vs ${esc(r[2])}</td><td>${fmtNum(r[3])}</td><td>${esc(r[4])} · ${fmtNum(r[5])}</td></tr>`).join('')}</table>` : ''}
+        ${recentPlayers.length ? `<h4 style="margin:16px 0 4px">Recent ${esc(posName)} results vs ${esc(p.opp)}</h4><table class="recent">
+          <tr class="muted"><th>Player</th><th>Team</th><th>Result</th><th>Date</th></tr>
+          ${recentPlayers.map(r => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${fmtNum(r[2])}</td><td>${r[3] ? fmtDate(r[3]) : '–'}</td></tr>`).join('')}</table>
+          <div class="note">Real results, not the line or odds at the time — we don't keep a history of past odds, only current ones.</div>` : ''}
         <div class="note">Rank = average allowed per game to ${posName}${SPORT === 'nfl' ? " over the defense's last 17 games (this + last season)." : ' this season.'}</div>
       </div></div>
 

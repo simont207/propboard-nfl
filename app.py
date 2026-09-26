@@ -756,9 +756,9 @@ def ordinal(n):
     return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
 
 
-def defense_ranks(df):
+def defense_ranks(df, sched):
     """How much each defense allows per game to each position (rank 1 = allows the most)."""
-    ranks, dvp, recent = {}, {}, {}
+    ranks, dvp, recent, recent_players = {}, {}, {}, {}
     for mkey, (_, positions, _) in MARKETS.items():
         for pos in positions:
             sub = df[df.position == pos].copy()
@@ -781,7 +781,17 @@ def defense_ranks(df):
                 recent[f"{team}|{pos}|{mkey}"] = [
                     [int(x.season), int(x.week), x.off, round(float(x.total), 1), x.name, round(float(x.top), 1)]
                     for x in grp.tail(5).itertuples()]
-    return ranks, dvp, recent
+            # Individual player-game results vs each defense -- real qualifying values only (dropna,
+            # not the 0-filled `sub` above, which would bury real results under every scratch/inactive
+            # on the roster). Newest first, capped at 8 per team so the table stays short.
+            real = df[(df.position == pos) & df[mkey].notna()].sort_values(["season", "week"])
+            for team, grp in real.groupby("opponent_team"):
+                rows = grp.tail(8).iloc[::-1]
+                recent_players[f"{team}|{pos}|{mkey}"] = [
+                    [x.player_display_name, x.team, round(float(getattr(x, mkey)), 1),
+                     sched.get(x.game_id, (None,))[0]]
+                    for x in rows.itertuples()]
+    return ranks, dvp, recent, recent_players
 
 
 def usage_shares(cur, latest, games):
@@ -1129,9 +1139,9 @@ def build_board():
     inj, inj_week, inj_latest = load_injuries()
     odds = load_odds()
     sgo = load_sgo()
-    ranks, dvp, recent = defense_ranks(df)
-    tiers = q1_tiers(df, games, inj_latest)
     sched = load_schedule()
+    ranks, dvp, recent, recent_players = defense_ranks(df, sched)
+    tiers = q1_tiers(df, games, inj_latest)
 
     status = {}
     if len(inj):
@@ -1216,7 +1226,8 @@ def build_board():
                     rows.append(row)
 
     return {
-        "season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent, "usage": usage,
+        "season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
+        "recent_players": recent_players, "usage": usage,
         "roster_activity": roster_act, "zones_player": zones_player, "zones_def": zones_def, "zone_fit": zf,
         "has_key": bool(load_config().get("odds_key")),
         "odds_pulled": odds["pulled"], "odds_remaining": odds["remaining"],
