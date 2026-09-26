@@ -1678,6 +1678,10 @@ const TRIVIAL_STREAK_MARKETS = new Set(['any_td', 'q1_any_td', 'long_pass', 'lon
   'q1_rec', 'q1_rush', 'q1_pass_yds', 'q1_rush_yds', 'q1_rec_yds']);
 function playerStreaks() {
   const out = [];
+  // NCAAF's box scores only go back HIST_WEEKS=6 (see cfb.py) -- nflverse/NBA/NHL carry 30+ games of
+  // history, so 5 straight is findable there. A CFB player has at most 6 games ever, so 5+ is nearly
+  // unreachable and Insights came up empty; 3 is still a real streak against that shallower ceiling.
+  const need = SPORT === 'ncaaf' ? 3 : 5;
   board.props.forEach(p => {
     if (TRIVIAL_STREAK_MARKETS.has(p.market)) return;
     const line = lineFor(p);
@@ -1686,7 +1690,7 @@ function playerStreaks() {
     for (let i = vals.length - 1; i >= 0; i--) {
       if (vals[i] > line) count++; else break;
     }
-    if (count >= 5) out.push({ p, line, count });
+    if (count >= need) out.push({ p, line, count });
   });
   out.sort((a, b) => b.count - a.count);
   return out.slice(0, 15);
