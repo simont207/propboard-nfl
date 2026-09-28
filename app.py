@@ -1308,9 +1308,12 @@ def build_board():
                 for mkey, (label, positions, (vcol, vmin)) in MARKETS.items():
                     if pos not in positions:
                         continue
+                    # No volume floor -- every position-eligible player gets every market regardless of
+                    # how little he's used, per Simon's explicit call ("remove it entirely, show every
+                    # player"). `vol` itself is still computed (used for display/sorting downstream), just
+                    # no longer gates whether the prop appears at all. A real qualifying game log is still
+                    # required right below -- that's a data-existence check, not a relevance filter.
                     vol = hist[vcol].tail(8).mean()
-                    if not vol >= vmin:
-                        continue
                     hl = hist.dropna(subset=[mkey]).tail(30)
                     if hl.empty:
                         continue
