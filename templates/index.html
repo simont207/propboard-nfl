@@ -348,12 +348,28 @@
   body.filters-open #filtersPanel { transform: none; }
   @media (min-width: 1150px) { body.filters-open main { padding-right: 362px; } }
   @media (max-width: 700px) { #filtersPanel { width: 100%; } }
-  #insightsFiltersPanel { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; max-width: 100%; background: var(--panel);
-    border-left: 1px solid var(--line); z-index: 15; transform: translateX(100%); transition: transform .2s;
-    display: flex; flex-direction: column; }
-  body.insights-filters-open #insightsFiltersPanel { transform: none; }
-  @media (min-width: 1150px) { body.insights-filters-open main { padding-right: 362px; } }
-  @media (max-width: 700px) { #insightsFiltersPanel { width: 100%; } }
+  #insightsFiltersPanel { position: fixed; inset: 0; z-index: 15; display: none; }
+  body.insights-filters-open #insightsFiltersPanel { display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.55); }
+  .if-modal { width: min(780px, 94vw); max-height: 86vh; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; }
+  .if-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .if-body { flex: 1; display: flex; min-height: 0; }
+  .if-nav { width: 220px; flex: none; border-right: 1px solid var(--line); overflow-y: auto; padding: 8px; }
+  .if-nav-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 10px;
+    border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .if-nav-row:hover { background: var(--panel2); }
+  .if-nav-row.on { background: var(--panel2); font-weight: 600; }
+  .if-nav-row .badge { font-size: 11px; color: var(--muted); }
+  .if-content { flex: 1; overflow-y: auto; padding: 16px 20px; }
+  .if-content-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .if-check-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .if-check-row input[type=checkbox], .if-check-row input[type=radio] { width: 18px; height: 18px; accent-color: var(--green); flex: none; }
+  .if-check-row .meta { font-size: 11px; color: var(--muted); }
+  .if-foot { border-top: 1px solid var(--line); padding: 14px 20px; display: flex; gap: 10px; align-items: center; }
+  @media (max-width: 700px) { .if-modal { width: 100%; height: 100%; max-height: 100%; border-radius: 0; }
+    .if-body { flex-direction: column; } .if-nav { width: 100%; border-right: none; border-bottom: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; gap: 4px; } .if-nav-row { flex: none; } }
   .filters-h { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px;
     border-bottom: 1px solid var(--line); }
   .filters-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
@@ -575,8 +591,31 @@ const F = { markets: new Set(['rec_yds']), pos: '', team: '', game: '', q: '', s
             oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '', altLinesOpen: false };
 let SORT_LABEL = 'hit';         // cosmetic only: 'dvp' and 'grade' both resolve to F.sort='opp_rank' (grade is derived from rank)
 let FROW_OPEN = null;           // which filters-panel accordion row is expanded, if any
-const IF = { type: '', team: '', game: '', minhit: 0, sort: 'pct' };   // insights filters
-let IFILTERS_OPEN = false, IFROW_OPEN = null;
+const IF = { type: '', teams: new Set(), games: new Set(), players: new Set(), markets: new Set(),
+  dir: '', splits: new Set(), oddsMin: '', oddsMax: '', minhit: 0, sort: 'pct' };   // insights filters
+let IFNAV = 'type';   // which left-nav category the filters modal is currently showing
+function ifSave() {
+  try {
+    localStorage.setItem('pb_insights_filters', JSON.stringify({
+      type: IF.type, teams: [...IF.teams], games: [...IF.games], players: [...IF.players],
+      markets: [...IF.markets], dir: IF.dir, splits: [...IF.splits],
+      oddsMin: IF.oddsMin, oddsMax: IF.oddsMax, minhit: IF.minhit, sort: IF.sort,
+    }));
+  } catch (e) {}
+}
+function ifLoadSaved() {
+  try {
+    const s = JSON.parse(localStorage.getItem('pb_insights_filters') || 'null');
+    if (!s) return;
+    IF.type = s.type || ''; IF.teams = new Set(s.teams || []); IF.games = new Set(s.games || []);
+    IF.players = new Set(s.players || []); IF.markets = new Set(s.markets || []);
+    IF.dir = s.dir || ''; IF.splits = new Set(s.splits || []);
+    IF.oddsMin = s.oddsMin || ''; IF.oddsMax = s.oddsMax || '';
+    IF.minhit = s.minhit || 0; IF.sort = s.sort || 'pct';
+  } catch (e) {}
+}
+ifLoadSaved();
+let IFILTERS_OPEN = false;
 let overrides = {};
 const EXPANDED = new Set();   // prop ids whose alt-line row is open on the board
 try { overrides = JSON.parse(localStorage.getItem(lsKey('pb_lines')) || '{}'); } catch (e) {}
@@ -625,7 +664,8 @@ function switchSport(sport) {
                       side: 'over', win: 'l10', minhit: 0, hideout: true, tierOnly: false, sort: 'hit', dir: -1,
                       oddsMin: null, oddsMax: null, lineMin: null, lineMax: null, gradeMin: '', altLinesOpen: false });
   SORT_LABEL = 'hit'; FROW_OPEN = null;
-  Object.assign(IF, { type: '', team: '', game: '', minhit: 0, sort: 'pct' }); IFROW_OPEN = null;
+  Object.assign(IF, { type: '', teams: new Set(), games: new Set(), players: new Set(), markets: new Set(),
+    dir: '', splits: new Set(), oddsMin: '', oddsMax: '', minhit: 0, sort: 'pct' });
   overrides = {}; try { overrides = JSON.parse(localStorage.getItem(lsKey('pb_lines')) || '{}'); } catch (e) {}
   EXPANDED.clear(); SLIP.length = 0; SLIP_OPEN = false;
   try { SLIP.push(...JSON.parse(localStorage.getItem(lsKey('pb_slip')) || '[]')); } catch (e) {}
@@ -1727,58 +1767,141 @@ function insightHistoryBar(hits) {
   return `<div class="hbar">${hits.map(h => `<span class="${h ? 'hit' : ''}"></span>`).join('')}</div>`;
 }
 function insightsFiltersActiveCount() {
-  let n = 0;
-  if (IF.type) n++; if (IF.team) n++; if (IF.game) n++; if (IF.minhit > 0) n++;
+  let n = IF.teams.size + IF.games.size + IF.players.size + IF.markets.size + IF.splits.size;
+  if (IF.type) n++; if (IF.dir) n++; if (IF.oddsMin || IF.oddsMax) n++; if (IF.minhit > 0) n++;
   return n;
 }
 const INSIGHT_SORTS = { pct: 'Strength', soon: 'Soonest game', az: 'A–Z' };
-function frowI(key, label, badge, bodyHtml) {
-  const open = IFROW_OPEN === key;
-  return `<div class="frow ${open ? 'open' : ''}">
-    <div class="frow-h" data-irow="${key}"><span class="lbl">${label}</span><span class="fbadge">${esc(String(badge))}</span><span class="chev">▾</span></div>
-    ${open ? `<div class="frow-body">${bodyHtml}</div>` : ''}
-  </div>`;
+const IF_NAV = [
+  ['type', 'Insight Type'], ['teams', 'Teams'], ['games', 'Games'], ['players', 'Players'],
+  ['odds', 'Odds'], ['markets', 'Propositions'], ['dir', 'Over / Under'], ['splits', 'Splits'],
+  ['minhit', 'Hit Rate'], ['sort', 'Sort'],
+];
+function ifNavBadge(key) {
+  if (key === 'type') return IF.type === 'team' ? 'Team' : IF.type === 'player' ? 'Player' : 'All';
+  if (key === 'teams') return IF.teams.size || 'All';
+  if (key === 'games') return IF.games.size || 'All';
+  if (key === 'players') return IF.players.size || 'All';
+  if (key === 'odds') return (IF.oddsMin || IF.oddsMax) ? `${IF.oddsMin || '–'} to ${IF.oddsMax || '–'}` : 'All';
+  if (key === 'markets') return IF.markets.size || 'All';
+  if (key === 'dir') return IF.dir === 'O' ? 'Over' : IF.dir === 'U' ? 'Under' : 'All';
+  if (key === 'splits') return IF.splits.size || 'All';
+  if (key === 'minhit') return IF.minhit > 0 ? `> ${IF.minhit}%` : 'All';
+  if (key === 'sort') return INSIGHT_SORTS[IF.sort];
+  return '';
+}
+const SPLIT_LABELS = { home_fav: 'Home favorite', home_dog: 'Home underdog', away_fav: 'Away favorite', away_dog: 'Away underdog' };
+function ifCheckRow(checked, label, meta, onChange, radio = false) {
+  return `<label class="if-check-row"><input type="${radio ? 'radio' : 'checkbox'}" ${checked ? 'checked' : ''}>
+    ${label}<span class="meta" style="margin-left:auto">${meta || ''}</span></label>`;
+}
+function renderInsightsFilterContent(allCards) {
+  if (IFNAV === 'type') {
+    return [['', 'All insights'], ['team', 'Team (ATS / O-U)'], ['player', 'Player streaks']].map(([v, l]) =>
+      `<label class="if-check-row" data-type="${v}"><input type="radio" name="ifType" ${IF.type === v ? 'checked' : ''}>${l}</label>`).join('');
+  }
+  if (IFNAV === 'teams') {
+    const teams = [...new Set(board.props.map(p => p.team))].sort();
+    return teams.map(t => `<label class="if-check-row" data-team="${esc(t)}">
+      <input type="checkbox" ${IF.teams.has(t) ? 'checked' : ''}>${timg(t, null, 22)}<b>${esc(t)}</b></label>`).join('');
+  }
+  if (IFNAV === 'games') {
+    return board.games.map(g => `<label class="if-check-row" data-game="${esc(g.id)}">
+      <input type="checkbox" ${IF.games.has(g.id) ? 'checked' : ''}>
+      <span style="display:flex;align-items:center;gap:4px">${timg(teamCode(g.away), g.away_logo, 24)}${timg(teamCode(g.home), g.home_logo, 24)}</span>
+      <div><div>${esc(teamCode(g.away))} @ ${esc(teamCode(g.home))}</div><div class="meta">${fmtTime(g.date)}</div></div></label>`).join('');
+  }
+  if (IFNAV === 'players') {
+    const players = [...new Map(allCards.filter(c => c.type === 'player').map(c => [c.label, c.playerObj])).entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    if (!players.length) return `<div class="muted">No player streaks on the board right now.</div>`;
+    return players.map(([name, p]) => `<label class="if-check-row" data-player="${esc(name)}">
+      <input type="checkbox" ${IF.players.has(name) ? 'checked' : ''}>${pimg(name, p ? p.img : null, 26)}${esc(name)}</label>`).join('');
+  }
+  if (IFNAV === 'odds') {
+    return `<div class="muted" style="margin-bottom:10px">American odds range, real sportsbook prices on player streak cards only — team ATS/O-U streaks don't carry a per-card price today.</div>
+      <div class="filter-range"><input type="number" id="ifOddsMin" placeholder="Min (e.g. -200)" value="${esc(IF.oddsMin)}">
+      <span class="muted">to</span><input type="number" id="ifOddsMax" placeholder="Max (e.g. +150)" value="${esc(IF.oddsMax)}"></div>`;
+  }
+  if (IFNAV === 'markets') {
+    const markets = [...new Set(allCards.map(c => c.market))].sort();
+    return markets.map(m => `<label class="if-check-row" data-market="${esc(m)}">
+      <input type="checkbox" ${IF.markets.has(m) ? 'checked' : ''}>${esc(m)}</label>`).join('');
+  }
+  if (IFNAV === 'dir') {
+    return [['', 'All'], ['O', 'Over'], ['U', 'Under']].map(([v, l]) =>
+      `<label class="if-check-row" data-dir="${v}"><input type="radio" name="ifDir" ${IF.dir === v ? 'checked' : ''}>${l}</label>`).join('') +
+      `<div class="muted" style="margin-top:10px">Applies to team over/under streaks and player streaks (always Over) — selecting one hides team spread streaks, which don't have an over/under side.</div>`;
+  }
+  if (IFNAV === 'splits') {
+    return Object.entries(SPLIT_LABELS).map(([v, l]) => `<label class="if-check-row" data-split="${v}">
+      <input type="checkbox" ${IF.splits.has(v) ? 'checked' : ''}>${l}</label>`).join('') +
+      `<div class="muted" style="margin-top:10px">Team streaks only — home/away and favorite/underdog role for the upcoming game.</div>`;
+  }
+  if (IFNAV === 'minhit') {
+    return `<div class="filter-range"><input type="number" id="ifMinhit" min="0" max="100" step="5" value="${IF.minhit}" style="max-width:120px"><span class="muted">% or higher</span></div>`;
+  }
+  if (IFNAV === 'sort') {
+    return Object.entries(INSIGHT_SORTS).map(([v, l]) =>
+      `<label class="if-check-row" data-sort="${v}"><input type="radio" name="ifSort" ${IF.sort === v ? 'checked' : ''}>${l}</label>`).join('');
+  }
+  return '';
 }
 function renderInsightsFilters(allCards) {
   document.body.classList.toggle('insights-filters-open', IFILTERS_OPEN);
-  const teams = [...new Set(allCards.map(c => c.team).filter(Boolean))].sort();
-  const games = [...new Map(allCards.filter(c => c.game).map(c => [c.game, board.games.find(x => x.id === c.game)])).values()].filter(Boolean);
-  const typeLabel = IF.type === 'team' ? 'Team' : IF.type === 'player' ? 'Player' : 'All';
-  const gameBadge = IF.game ? (() => { const g = board.games.find(x => x.id === IF.game);
-    return g ? `${teamCode(g.away)} @ ${teamCode(g.home)}` : 'All'; })() : 'All';
-  $('#insightsFiltersPanel').innerHTML = `
-    <div class="filters-h"><b>Filters</b><button class="btn" id="ifClose">✕</button></div>
-    <div class="filters-body">
-      ${frowI('type', 'Insight Type', typeLabel, `
-        <select id="ifType"><option value="">All Insights</option>
-          <option value="team" ${IF.type === 'team' ? 'selected' : ''}>Team (ATS / O-U)</option>
-          <option value="player" ${IF.type === 'player' ? 'selected' : ''}>Player streaks</option>
-        </select>`)}
-      ${frowI('team', 'Team', IF.team || 'All', `
-        <select id="ifTeam"><option value="">All</option>
-          ${teams.map(t => `<option value="${esc(t)}" ${IF.team === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
-        </select>`)}
-      ${frowI('game', 'Game', gameBadge, `
-        <select id="ifGame"><option value="">All</option>
-          ${games.map(g => `<option value="${g.id}" ${IF.game === g.id ? 'selected' : ''}>${teamCode(g.away)} @ ${teamCode(g.home)}</option>`).join('')}
-        </select>`)}
-      ${frowI('minhit', 'Min Hit Rate', `> ${IF.minhit}%`, `
-        <div class="filter-range"><input type="number" id="ifMinhit" min="0" max="100" step="5" value="${IF.minhit}" style="max-width:90px"><span class="muted">%</span></div>`)}
-      ${frowI('sort', 'Sort By', INSIGHT_SORTS[IF.sort], `
-        <select id="ifSort">${Object.entries(INSIGHT_SORTS).map(([k, l]) => `<option value="${k}" ${IF.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+  if (!IFILTERS_OPEN) { $('#insightsFiltersPanel').innerHTML = ''; return; }
+  const shown = allCards.filter(insightsMatchesFilter).length;
+  $('#insightsFiltersPanel').innerHTML = `<div class="if-modal">
+    <div class="if-head"><b style="font-size:16px">Current Filters</b><span class="fbadge">${insightsFiltersActiveCount()}</span>
+      <div class="spacer"></div><button class="btn" id="ifClose">✕</button></div>
+    <div class="if-body">
+      <div class="if-nav">${IF_NAV.map(([k, l]) => `<div class="if-nav-row ${IFNAV === k ? 'on' : ''}" data-nav="${k}">
+        <span>${esc(l)}</span><span class="badge">${esc(String(ifNavBadge(k)))}</span></div>`).join('')}</div>
+      <div class="if-content">
+        <div class="if-content-h"><b>${esc(IF_NAV.find(([k]) => k === IFNAV)[1])}</b></div>
+        ${renderInsightsFilterContent(allCards)}
+      </div>
     </div>
-    <div class="filters-f"><button class="btn" id="ifClear">Clear Filters</button><button class="btn primary" id="ifDone">Done</button></div>`;
-  document.querySelectorAll('#insightsFiltersPanel .frow-h[data-irow]').forEach(el => el.onclick = () => {
-    IFROW_OPEN = IFROW_OPEN === el.dataset.irow ? null : el.dataset.irow;
-    renderInsightsFilters(allCards);
-  });
-  $('#ifClose').onclick = $('#ifDone').onclick = () => { IFILTERS_OPEN = false; renderInsightsFilters(allCards); };
-  $('#ifClear').onclick = () => { Object.assign(IF, { type: '', team: '', game: '', minhit: 0, sort: 'pct' }); renderInsights(); };
-  if ($('#ifType')) $('#ifType').onchange = e => { IF.type = e.target.value; renderInsights(); };
-  if ($('#ifTeam')) $('#ifTeam').onchange = e => { IF.team = e.target.value; renderInsights(); };
-  if ($('#ifGame')) $('#ifGame').onchange = e => { IF.game = e.target.value; renderInsights(); };
+    <div class="if-foot"><button class="btn" id="ifReset">Reset</button><div class="spacer"></div>
+      <button class="btn" id="ifSaveBtn">Save Filters</button>
+      <button class="btn primary" id="ifShow">Show ${shown} Result${shown === 1 ? '' : 's'}</button></div>
+  </div>`;
+  document.querySelectorAll('.if-nav-row').forEach(el => el.onclick = () => { IFNAV = el.dataset.nav; renderInsightsFilters(allCards); });
+  $('#ifClose').onclick = $('#ifShow').onclick = () => { IFILTERS_OPEN = false; renderInsightsFilters(allCards); };
+  $('#ifReset').onclick = () => {
+    Object.assign(IF, { type: '', teams: new Set(), games: new Set(), players: new Set(), markets: new Set(),
+      dir: '', splits: new Set(), oddsMin: '', oddsMax: '', minhit: 0, sort: 'pct' });
+    renderInsights();
+  };
+  $('#ifSaveBtn').onclick = () => { ifSave(); const b = $('#ifSaveBtn'); b.textContent = 'Saved'; setTimeout(() => b.textContent = 'Save Filters', 1200); };
+  document.querySelectorAll('[data-type]').forEach(el => el.onclick = () => { IF.type = el.dataset.type; renderInsights(); });
+  document.querySelectorAll('[data-team]').forEach(el => el.onclick = () => { const t = el.dataset.team;
+    IF.teams.has(t) ? IF.teams.delete(t) : IF.teams.add(t); renderInsights(); });
+  document.querySelectorAll('[data-game]').forEach(el => el.onclick = () => { const g = el.dataset.game;
+    IF.games.has(g) ? IF.games.delete(g) : IF.games.add(g); renderInsights(); });
+  document.querySelectorAll('[data-player]').forEach(el => el.onclick = () => { const p = el.dataset.player;
+    IF.players.has(p) ? IF.players.delete(p) : IF.players.add(p); renderInsights(); });
+  document.querySelectorAll('[data-market]').forEach(el => el.onclick = () => { const m = el.dataset.market;
+    IF.markets.has(m) ? IF.markets.delete(m) : IF.markets.add(m); renderInsights(); });
+  document.querySelectorAll('[data-dir]').forEach(el => el.onclick = () => { IF.dir = el.dataset.dir; renderInsights(); });
+  document.querySelectorAll('[data-split]').forEach(el => el.onclick = () => { const s = el.dataset.split;
+    IF.splits.has(s) ? IF.splits.delete(s) : IF.splits.add(s); renderInsights(); });
+  document.querySelectorAll('[data-sort]').forEach(el => el.onclick = () => { IF.sort = el.dataset.sort; renderInsights(); });
+  if ($('#ifOddsMin')) $('#ifOddsMin').onchange = e => { IF.oddsMin = e.target.value; renderInsights(); };
+  if ($('#ifOddsMax')) $('#ifOddsMax').onchange = e => { IF.oddsMax = e.target.value; renderInsights(); };
   if ($('#ifMinhit')) $('#ifMinhit').onchange = e => { IF.minhit = +e.target.value || 0; renderInsights(); };
-  if ($('#ifSort')) $('#ifSort').onchange = e => { IF.sort = e.target.value; renderInsights(); };
+}
+function insightsMatchesFilter(c) {
+  if (IF.type && c.type !== IF.type) return false;
+  if (IF.teams.size && !IF.teams.has(c.team)) return false;
+  if (IF.games.size && !IF.games.has(c.game)) return false;
+  if (IF.players.size && !(c.type === 'player' && IF.players.has(c.label))) return false;
+  if (IF.markets.size && !IF.markets.has(c.market)) return false;
+  if (IF.dir && c.overUnderDir !== IF.dir) return false;
+  if (IF.splits.size && !(c.split && IF.splits.has(c.split))) return false;
+  if ((IF.oddsMin !== '' || IF.oddsMax !== '') &&
+      (c.odds == null || (IF.oddsMin !== '' && c.odds < +IF.oddsMin) || (IF.oddsMax !== '' && c.odds > +IF.oddsMax))) return false;
+  if (c.pct * 100 < IF.minhit) return false;
+  return true;
 }
 function renderInsights() {
   const allCards = [];
@@ -1803,7 +1926,9 @@ function renderInsights() {
       marketLabel = `${t.dir === 'O' ? 'Over' : 'Under'}${g && g.total ? ' ' + g.total : ''}`;
     }
     const mrowId = `it-${i}`;
+    const split = t.side ? `${t.side}_${t.fav ? 'fav' : 'dog'}` : null;
     allCards.push({ type: 'team', team: teamCode(t.team), game: t.game, pct, when: g ? g.date : null, label: t.team,
+      market: t.kind === 'ats' ? 'Spread' : 'Total', overUnderDir: t.kind === 'ou' ? t.dir : null, split, odds: null,
       html: `<div class="chartcard insight-card" style="margin-bottom:14px;padding:20px 22px;border-left:4px solid ${color}">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
         ${timg(t.team, logo, 44)}
@@ -1838,6 +1963,7 @@ function renderInsights() {
     const pct = histHits.length ? histHits.filter(Boolean).length / histHits.length : 0;
     const mrowId = `ip-${p.id}`;
     allCards.push({ type: 'player', team: p.team, game: p.game, pct, when: g ? g.date : null, label: p.player,
+      market: p.label, overUnderDir: 'O', split: null, odds: p.over, playerObj: p,
       html: `<div class="chartcard insight-card insight-nav" data-nav="#/p/${encodeURIComponent(p.id)}" style="margin-bottom:14px;padding:20px 22px;border-left:4px solid ${color};cursor:pointer">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
         ${pimg(p.player, p.img, 44)}
@@ -1865,9 +1991,7 @@ function renderInsights() {
           `<tr><td>${x[0]}${x[1] != null && SPORT !== 'nba' && SPORT !== 'nhl' ? ' Wk ' + x[1] : ''}</td><td>vs ${esc(x[2])}</td><td class="${x[3] > line ? 'g' : 'r'}">${fmtNum(x[3])}</td></tr>`).join('')}</table>
       </div></div>` });
   });
-  let cards = allCards.filter(c =>
-    (!IF.type || c.type === IF.type) && (!IF.team || c.team === IF.team) &&
-    (!IF.game || c.game === IF.game) && (c.pct * 100 >= IF.minhit));
+  let cards = allCards.filter(insightsMatchesFilter);
   if (IF.sort === 'soon') cards.sort((a, b) => (a.when || '').localeCompare(b.when || ''));
   else if (IF.sort === 'az') cards.sort((a, b) => a.label.localeCompare(b.label));
   else cards.sort((a, b) => b.pct - a.pct);

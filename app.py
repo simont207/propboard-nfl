@@ -411,6 +411,7 @@ def team_situational_streaks(games):
                 recent = grp[grp.ats.notna()].tail(n)
                 out.append({
                     "kind": "ats", "team": team_espn, "opp": opp_espn, "game": gm["id"], "dir": d,
+                    "side": side, "fav": fav,
                     "text": f"{team_espn} {verb} in {hits} of their last {n}{straight} games as {role}.",
                     "hits": hits, "n": n,
                     "games": [[int(x.season), int(x.week), x.opp, x.ats] for x in recent.itertuples()],
@@ -424,6 +425,7 @@ def team_situational_streaks(games):
                 recent = grp[grp.ou.notna()].tail(n)
                 out.append({
                     "kind": "ou", "team": team_espn, "opp": opp_espn, "game": gm["id"], "dir": word[0].upper(),
+                    "side": side, "fav": fav,
                     "text": f"The {word} has hit in {hits} of {team_espn}'s last {n}{straight} games as {role}.",
                     "hits": hits, "n": n,
                     "games": [[int(x.season), int(x.week), x.opp, x.ou] for x in recent.itertuples()],
