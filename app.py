@@ -743,9 +743,42 @@ def pull_sgo(key, games=None):
                                  key=lambda b: BOOK_ORDER.index(b["book"]) if b["book"] in BOOK_ORDER else 99)
         entry["alts"] = [{"t": t, **sides} for t, sides in sorted(entry["alts"].items())]
 
+    record_line_history(lines)
     out = {"pulled": time.time(), "events": len(events), "lines": lines}
     SGO_FILE.write_text(json.dumps(out))
     return out
+
+
+LINE_HISTORY_FILE = DATA / "line_history.json"
+
+
+def record_line_history(lines):
+    """Append today's consensus line to a persistent per-prop history -- SGO itself only ever gives us
+    the CURRENT line, never a past one, so real line movement can only start accumulating from the
+    first pull that has this code in it. Skips a prop entirely until we've seen an actual line for it,
+    and skips writing a new entry when the line hasn't changed since the last recorded one, so a normal
+    day of no movement doesn't bloat the file with duplicate points."""
+    try:
+        hist = json.loads(LINE_HISTORY_FILE.read_text())
+    except Exception:
+        hist = {}
+    now = time.time()
+    for key, entry in lines.items():
+        if entry.get("line") is None:
+            continue
+        points = hist.setdefault(key, [])
+        if points and points[-1]["line"] == entry["line"]:
+            continue
+        points.append({"ts": now, "line": entry["line"]})
+        del points[:-20]     # cap history length per prop
+    LINE_HISTORY_FILE.write_text(json.dumps(hist))
+
+
+def load_line_history():
+    try:
+        return json.loads(LINE_HISTORY_FILE.read_text())
+    except Exception:
+        return {}
 
 
 def american_to_prob(odds):
@@ -1213,6 +1246,7 @@ def build_board():
     weather = load_weather(games)
     rest = load_rest_days(games)
     team_streaks = team_situational_streaks(games)
+    line_hist = load_line_history()
     for g in games:
         g["weather"] = weather.get(g["id"])
     inj, inj_week, inj_latest = load_injuries()
@@ -1274,6 +1308,7 @@ def build_board():
                         "zone_edge": zone_edge(pid, o, zones_player, zones_def) if mkey in ZONE_MARKETS else None,
                         "opp_rest": rest.get((o, g["id"])),
                         "timeline": timelines.get(pid),
+                        "line_history": line_hist.get(f"{norm_name(p.player_display_name)}|{mkey}|{g['id']}"),
                     }
                     books = odds["lines"].get(f"{norm_name(p.player_display_name)}|{mkey}")
                     if books:

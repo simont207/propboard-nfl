@@ -76,6 +76,15 @@ jobs:
           path: data/weather_cache.json
           key: weather-${{ github.run_id }}
           restore-keys: weather-
+      # Real line-movement history: unlike the caches above (which just avoid re-fetching), this one is
+      # the ONLY copy of past lines that will ever exist -- SGO's API only ever returns the CURRENT
+      # line, never a past one, so if this cache is ever lost, that history is gone for good, not just
+      # slow to rebuild.
+      - uses: actions/cache@v4
+        with:
+          path: data/line_history.json
+          key: line-history-${{ github.run_id }}
+          restore-keys: line-history-
       - run: python build_static.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

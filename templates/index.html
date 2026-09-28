@@ -675,6 +675,31 @@ function weatherLine(g) {
   const notable = wind >= 15 || precip >= 30 || temp <= 32 || temp >= 90;
   return `<div class="meta${notable ? ' weather-notable' : ''}">${temp}°F · ${wind}mph wind${precip >= 20 ? ` · ${precip}% rain` : ''}</div>`;
 }
+// Real historical lines, one snapshot per day the site pulls fresh SGO odds (its own book price, not
+// our estimate) -- we started recording this on 2026-09-28, so this only shows genuine movement once
+// at least 2 real snapshots exist for a prop; a single point just means tracking only just started.
+function lineMovementHtml(p) {
+  const hist = p.line_history;
+  if (!hist || !hist.length) return '';
+  if (hist.length < 2) {
+    return `<div style="margin-top:14px"><b>Line movement</b>
+      <div class="muted" style="font-size:12px;margin-top:4px">Started tracking this line today — check back after the next update to see movement.</div></div>`;
+  }
+  const rows = hist.slice().reverse().map((pt, i, arr) => {
+    const isOpen = i === arr.length - 1;
+    const prev = arr[i + 1];
+    const delta = prev ? Math.round((pt.line - prev.line) * 10) / 10 : 0;
+    const cls = delta > 0 ? 'g' : delta < 0 ? 'r' : '';
+    const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '';
+    const d = new Date(pt.ts * 1000);
+    const when = d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return `<tr><td>${when}${isOpen ? ' <span class="muted">(Open)</span>' : ''}</td>
+      <td>${fmtNum(pt.line)} ${delta ? `<span class="${cls}">${arrow} ${Math.abs(delta)}</span>` : ''}</td></tr>`;
+  }).join('');
+  return `<div style="margin-top:14px"><b>Line movement</b>
+    <span class="muted" style="font-size:12px">— real historical lines from this site's own daily pulls, not a third-party feed.</span>
+    <table class="recent" style="margin-top:8px"><tr class="muted"><th>Updated</th><th>Line</th></tr>${rows}</table></div>`;
+}
 function timg(code, url, size, bare = false) {       // bare = the team code is already written next to the logo
   const fb = bare ? '' : `<span class="tbadge" style="height:${size}px;min-width:${size}px;font-size:${Math.max(9, Math.round(size * 0.36))}px">${esc(code)}</span>`;
   if (!SHOW_IMAGES || !url) return fb;
@@ -1330,6 +1355,7 @@ function renderPlayer(p) {
         : p.src === 'fixed' ? `<div class="muted">First-quarter 5+ yard props use a fixed line of 4.5 (5 or more yards wins). Prices for these aren't pulled into this site, so check your sportsbook for the odds. You can type a different line (like 9.5) to test bigger thresholds.</div>`
         : `<div class="muted">No sportsbook prop lines loaded yet. The line shown is an estimate (${p.est}) from his recent average.</div>
            <p><button class="btn primary" id="pvLines">Add sportsbook lines</button></p>`}
+        ${lineMovementHtml(p)}
         ${g ? `<h4 style="margin:16px 0 4px">Game odds</h4>${mline('Spread', esc(g.spread || '–'))}${mline('Total', total ?? '–')}` : ''}
       </div></div>
     </div>`;
