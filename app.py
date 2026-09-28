@@ -1001,7 +1001,7 @@ def load_roster():
     if not download(f"{NFLVERSE}/rosters/roster_{SEASON}.parquet", f, 24):
         return pd.DataFrame()
     r = pd.read_parquet(f).sort_values("week")
-    return r.groupby("gsis_id").tail(1)[["gsis_id", "team", "position", "pfr_id", "full_name"]]
+    return r.groupby("gsis_id").tail(1)[["gsis_id", "team", "position", "pfr_id", "full_name", "status", "headshot_url"]]
 
 
 def load_snap_share():
@@ -1265,6 +1265,33 @@ def build_board():
 
     cur = df[df.season == SEASON]
     latest = cur.sort_values("week").groupby("player_id").tail(1).set_index("player_id")
+
+    # A player who changed teams very recently (trade, late free-agent signing) has zero SEASON rows
+    # under his new team -- without this he's invisible on the board until his new team's stats start
+    # flowing in, even though the roster file (a separate, faster-moving nflverse source) already has
+    # the move. Bootstrap him in from his last real game log (any season) so his line/history still
+    # come from real games, just re-tagged to his CURRENT roster team -- his actual 2026-with-this-team
+    # log naturally stays empty until he really plays, which is honest, not backfilled.
+    roster = load_roster()
+    if len(roster):
+        active = roster[roster.status.isin(["ACT", "DEV"])]   # DEV = practice squad -- still a real signing,
+        # not released/retired/on IR, and a practice-squad player can be elevated to play on short notice
+        missing = active[~active.gsis_id.isin(latest.index)]
+        if len(missing):
+            last_hist = df.sort_values(["season", "week"]).groupby("player_id").tail(1)
+            last_hist = last_hist.set_index("player_id")
+            fallback = []
+            for r in missing.itertuples():
+                if r.gsis_id not in last_hist.index:
+                    continue   # never had a real game logged at all -- nothing to bootstrap from
+                fallback.append({
+                    "player_id": r.gsis_id, "team": r.team, "position": r.position,
+                    "player_display_name": r.full_name,
+                    "headshot_url": r.headshot_url if pd.notna(r.headshot_url) else last_hist.loc[r.gsis_id, "headshot_url"],
+                })
+            if fallback:
+                fb = pd.DataFrame(fallback).set_index("player_id")
+                latest = pd.concat([latest, fb])
     usage = usage_shares(cur, latest, games)
     roster_act = roster_activity(inj, inj_week, cur, load_snap_avg())
     zones_player, zones_def = load_zones()
