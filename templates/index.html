@@ -1761,8 +1761,43 @@ function playerStreaks() {
   out.sort((a, b) => b.count - a.count);
   return out.slice(0, 15);
 }
+// Bucket a player's own real games by how strong/weak the defense he faced THAT game ranks TODAY
+// (same simplification the rest of the site already makes for matchup context -- a retroactive
+// rank-at-the-time isn't tracked) at allowing his own market's stat, then check his real hit rate
+// in just that bucket, both sides. "Elite" = allows the least (best defenses, favors Under); "weak" =
+// allows the most (worst defenses, favors Over). Only surfaced when it's a real, 80%+ one-sided read
+// over at least 5 games in that bucket -- same bar team streaks use.
+function opponentBucketStreaks() {
+  const out = [];
+  board.props.forEach(p => {
+    if (TRIVIAL_STREAK_MARKETS.has(p.market)) return;
+    const dv = board.dvp[`${p.pos}|${p.market}`];
+    if (!dv) return;
+    const rn = dv.n || 32;
+    const line = lineFor(p);
+    const weak = [], elite = [];
+    p.log.forEach(x => {
+      const t = dv.teams[x[2]];
+      if (!t) return;
+      const entry = { over: x[3] > line, under: x[3] < line, row: x, rank: t[0] };
+      if (t[0] <= 10) weak.push(entry);
+      if (t[0] > rn - 10) elite.push(entry);
+    });
+    [['weak', weak, 'bottom-10'], ['elite', elite, 'top-10']].forEach(([kind, games, tierLabel]) => {
+      const recent = games.slice(-10), n = recent.length;
+      if (n < 5) return;
+      ['over', 'under'].forEach(side => {
+        const hits = recent.filter(g => g[side]).length;
+        if (hits / n < 0.8) return;
+        out.push({ p, line, side, kind, tierLabel, hits, n, pct: hits / n, games: recent });
+      });
+    });
+  });
+  out.sort((a, b) => b.pct - a.pct);
+  return out.slice(0, 15);
+}
 
-const INSIGHT_COLORS = { ats: '#60a5fa', ou: '#fbbf24', player: '#4ade80' };
+const INSIGHT_COLORS = { ats: '#60a5fa', ou: '#fbbf24', player: '#4ade80', matchup: '#a78bfa' };
 function insightHistoryBar(hits) {
   return `<div class="hbar">${hits.map(h => `<span class="${h ? 'hit' : ''}"></span>`).join('')}</div>`;
 }
@@ -1797,7 +1832,8 @@ function ifCheckRow(checked, label, meta, onChange, radio = false) {
 }
 function renderInsightsFilterContent(allCards) {
   if (IFNAV === 'type') {
-    return [['', 'All insights'], ['team', 'Team (ATS / O-U)'], ['player', 'Player streaks']].map(([v, l]) =>
+    return [['', 'All insights'], ['team', 'Team (ATS / O-U)'], ['player', 'Player streaks'],
+      ['matchup', 'Matchup streaks (vs weak/elite defenses)']].map(([v, l]) =>
       `<label class="if-check-row" data-type="${v}"><input type="radio" name="ifType" ${IF.type === v ? 'checked' : ''}>${l}</label>`).join('');
   }
   if (IFNAV === 'teams') {
@@ -1812,7 +1848,7 @@ function renderInsightsFilterContent(allCards) {
       <div><div>${esc(teamCode(g.away))} @ ${esc(teamCode(g.home))}</div><div class="meta">${fmtTime(g.date)}</div></div></label>`).join('');
   }
   if (IFNAV === 'players') {
-    const players = [...new Map(allCards.filter(c => c.type === 'player').map(c => [c.label, c.playerObj])).entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const players = [...new Map(allCards.filter(c => c.type === 'player' || c.type === 'matchup').map(c => [c.label, c.playerObj])).entries()].sort((a, b) => a[0].localeCompare(b[0]));
     if (!players.length) return `<div class="muted">No player streaks on the board right now.</div>`;
     return players.map(([name, p]) => `<label class="if-check-row" data-player="${esc(name)}">
       <input type="checkbox" ${IF.players.has(name) ? 'checked' : ''}>${pimg(name, p ? p.img : null, 26)}${esc(name)}</label>`).join('');
@@ -1894,7 +1930,7 @@ function insightsMatchesFilter(c) {
   if (IF.type && c.type !== IF.type) return false;
   if (IF.teams.size && !IF.teams.has(c.team)) return false;
   if (IF.games.size && !IF.games.has(c.game)) return false;
-  if (IF.players.size && !(c.type === 'player' && IF.players.has(c.label))) return false;
+  if (IF.players.size && !((c.type === 'player' || c.type === 'matchup') && IF.players.has(c.label))) return false;
   if (IF.markets.size && !IF.markets.has(c.market)) return false;
   if (IF.dir && c.overUnderDir !== IF.dir) return false;
   if (IF.splits.size && !(c.split && IF.splits.has(c.split))) return false;
@@ -1989,6 +2025,46 @@ function renderInsights() {
       <div class="insight-detail" id="${mrowId}" hidden style="margin-top:14px">
         <table class="recent"><tr class="muted"><th>Game</th><th>Opponent</th><th>Result</th></tr>${last10.slice().reverse().map(x =>
           `<tr><td>${x[0]}${x[1] != null && SPORT !== 'nba' && SPORT !== 'nhl' ? ' Wk ' + x[1] : ''}</td><td>vs ${esc(x[2])}</td><td class="${x[3] > line ? 'g' : 'r'}">${fmtNum(x[3])}</td></tr>`).join('')}</table>
+      </div></div>` });
+  });
+  opponentBucketStreaks().forEach(o => {
+    const { p, line, side, tierLabel, hits, n, games } = o;
+    const color = INSIGHT_COLORS.matchup;
+    const g = board.games.find(x => x.id === p.game);
+    const logo = g ? (teamCode(g.home) === p.team ? g.home_logo : g.away_logo) : null;
+    const statLabel = esc(p.label.toLowerCase());
+    const verb = side === 'over' ? 'exceeded' : 'stayed under';
+    const histHits = games.map(x => side === 'over' ? x.over : x.under);
+    const pct = hits / n;
+    const mrowId = `im-${p.id}-${side}-${o.kind}`;
+    const odds = side === 'over' ? p.over : p.under;
+    allCards.push({ type: 'matchup', team: p.team, game: p.game, pct, when: g ? g.date : null, label: p.player,
+      market: p.label, overUnderDir: side === 'over' ? 'O' : 'U', split: null, odds, playerObj: p,
+      html: `<div class="chartcard insight-card insight-nav" data-nav="#/p/${encodeURIComponent(p.id)}" style="margin-bottom:14px;padding:20px 22px;border-left:4px solid ${color};cursor:pointer">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+        ${pimg(p.player, p.img, 44)}
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-weight:700;font-size:17px">${esc(p.player)}</span>
+            <span style="font-size:10px;font-weight:700;letter-spacing:.04em;color:${color};border:1px solid ${color};padding:2px 7px;border-radius:999px">MATCHUP</span>
+          </div>
+          <div class="muted" style="font-size:12px;display:flex;align-items:center;gap:6px">
+            ${timg(p.team, logo, 16)} ${esc(p.pos)} · ${esc(p.team)} ${p.home ? 'vs' : '@'} ${esc(p.opp)}
+          </div>
+        </div>
+      </div>
+      <div style="font-weight:700;font-size:16px;line-height:1.4">Has ${verb} ${line} ${statLabel} in ${hits} of his last ${n} games vs ${tierLabel} defenses for ${statLabel} allowed.</div>
+      <div class="insight-mrow" data-mrow="${mrowId}">
+        <span class="chev">▸</span><span class="ml">${side === 'over' ? 'Over' : 'Under'} ${line} ${statLabel}</span>
+        ${insightHistoryBar(histHits)}
+        <span class="pct" style="color:${color}">${Math.round(pct * 100)}%</span>
+        ${odds != null ? `<span class="insight-odds">${fmtOdds(odds)}<button class="qbtn addbtn ${inSlip(p, line, side) ? 'on' : ''}"
+          data-id="${esc(p.id)}" data-t="${line}" data-side="${side}"
+          title="${inSlip(p, line, side) ? 'Remove from parlay slip' : `Add ${side === 'over' ? 'Over' : 'Under'} ${line} to your parlay`}">${inSlip(p, line, side) ? '✓' : '+'}</button></span>` : ''}
+      </div>
+      <div class="insight-detail" id="${mrowId}" hidden style="margin-top:14px">
+        <table class="recent"><tr class="muted"><th>Game</th><th>Opponent (D rank)</th><th>Result</th></tr>${games.slice().reverse().map(x =>
+          `<tr><td>${x.row[0]}${x.row[1] != null && SPORT !== 'nba' && SPORT !== 'nhl' ? ' Wk ' + x.row[1] : ''}</td><td>vs ${esc(x.row[2])} (${ord(x.rank)})</td><td class="${(side === 'over' ? x.over : x.under) ? 'g' : 'r'}">${fmtNum(x.row[3])}</td></tr>`).join('')}</table>
       </div></div>` });
   });
   let cards = allCards.filter(insightsMatchesFilter);
