@@ -14,6 +14,7 @@ no inference or explicit-field lookup needed. Skater and goalie stat keys are co
 sets (goalies track saves/goalsAgainst, not goals/assists), so they're parsed separately.
 """
 import json
+import re
 import time
 from pathlib import Path
 
@@ -45,6 +46,174 @@ GOALIE_MARKETS = {
 }
 MARKETS = {**SKATER_MARKETS, **GOALIE_MARKETS}
 POSITIONS = ("F", "D", "G")
+
+# --------------------------------------------------- SportsGameOdds (real lines, once/day) ---
+# Same account/API app.py's NFL integration already uses. Checked live against SGO's real NHL
+# coverage before writing any of this: 'goals' and 'penaltyMinutes' have no plain O/U line in their
+# data (no matching statID found across a 30-event sample) -- those 2 of our 9 markets stay EST-only,
+# the other 7 (assists/blocks/hits/points/sog/saves/goals_against) get real book lines.
+BOOK_ORDER = ["fanduel", "draftkings", "betmgm", "caesars", "espnbet", "fanatics"]
+SGO_API = "https://api.sportsgameodds.com/v2"
+SGO_KEY_FILE = BASE / "data" / "sgo_key.txt"   # shared key file, same account as NFL's
+SGO_FILE = DATA / "sgo_odds.json"
+LINE_HISTORY_FILE = DATA / "line_history.json"
+SGO_MARKETS = {
+    ("assists", "game"): "assists", ("blocks", "game"): "blocks", ("hits", "game"): "hits",
+    ("points", "game"): "points", ("shots_onGoal", "game"): "sog",
+    ("goalie_saves", "game"): "saves", ("goalie_goalsAgainst", "game"): "goals_against",
+}
+
+
+def norm_name(n):
+    n = re.sub(r"[^a-z ]", "", (n or "").lower().replace(".", ""))
+    return re.sub(r"\b(jr|sr|ii|iii|iv|v)\b", "", n).strip()
+
+
+def load_sgo_key():
+    try:
+        return SGO_KEY_FILE.read_text().strip() or None
+    except Exception:
+        return None
+
+
+def load_sgo():
+    try:
+        return json.loads(SGO_FILE.read_text())
+    except Exception:
+        return {"pulled": None, "remaining": None, "lines": {}}
+
+
+def _sgo_american(s):
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def record_line_history(lines):
+    try:
+        hist = json.loads(LINE_HISTORY_FILE.read_text())
+    except Exception:
+        hist = {}
+    now = time.time()
+    for key, entry in lines.items():
+        if entry.get("line") is None:
+            continue
+        points = hist.setdefault(key, [])
+        if points and points[-1]["line"] == entry["line"]:
+            continue
+        points.append({"ts": now, "line": entry["line"]})
+        del points[:-20]
+    LINE_HISTORY_FILE.write_text(json.dumps(hist))
+
+
+def load_line_history():
+    try:
+        return json.loads(LINE_HISTORY_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def american_to_prob(odds):
+    if odds is None:
+        return None
+    return 100 / (odds + 100) if odds > 0 else -odds / (-odds + 100)
+
+
+def ev_pct(book_odds, fair_odds):
+    if book_odds is None or fair_odds is None:
+        return None
+    p_fair = american_to_prob(fair_odds)
+    d_book = 1 + (book_odds / 100 if book_odds > 0 else 100 / abs(book_odds))
+    return round((p_fair * d_book - 1) * 100, 1)
+
+
+def pull_sgo(key, games=None):
+    """Mirrors app.py's NFL pull_sgo (same account/API, see there for the fuller rationale on each
+    guard). No TD_MARKETS-style binary market exists in our own NHL MARKETS dict, so every real
+    market here is a plain 'ou' line -- no yn/ou conflation to gate against."""
+    import datetime
+    params_extra = {}
+    if games:
+        last = max(g["date"] for g in games)[:10]
+        end = (datetime.date.fromisoformat(last) + datetime.timedelta(days=1)).isoformat()
+        params_extra = {"startsAfter": min(g["date"] for g in games)[:10], "startsBefore": end}
+    events, cursor = [], None
+    for _ in range(10):
+        params = {"apiKey": key, "leagueID": "NHL", "oddsAvailable": "true", "includeAltLines": "true",
+                  **params_extra}
+        if cursor:
+            params["cursor"] = cursor
+        r = requests.get(f"{SGO_API}/events", params=params, timeout=45)
+        if r.status_code != 200:
+            try:
+                msg = r.json().get("error", f"HTTP {r.status_code}")
+            except Exception:
+                msg = f"HTTP {r.status_code}"
+            raise RuntimeError(msg)
+        d = r.json()
+        events.extend(d.get("data", []))
+        cursor = d.get("nextCursor")
+        if not cursor:
+            break
+
+    game_by_teams = {}
+    if games:
+        for g in games:
+            game_by_teams[(g["home"], g["away"])] = g["id"]
+
+    lines = {}
+    for ev in events:
+        players = ev.get("players", {})
+        teams = ev.get("teams", {})
+        home_abbr = (teams.get("home", {}).get("names") or {}).get("short")
+        away_abbr = (teams.get("away", {}).get("names") or {}).get("short")
+        our_game_id = game_by_teams.get((home_abbr, away_abbr)) or ev["eventID"]
+        for o in ev.get("odds", {}).values():
+            mkey = SGO_MARKETS.get((o.get("statID"), o.get("periodID")))
+            pid = o.get("playerID")
+            if not mkey or not pid or pid not in players or o.get("betTypeID") != "ou":
+                continue
+            side = o.get("sideID")
+            slot = "over" if side == "over" else "under" if side == "under" else None
+            if not slot:
+                continue
+            name = norm_name(players[pid].get("name", ""))
+            entry = lines.setdefault(f"{name}|{mkey}|{our_game_id}", {
+                "line": None, "fair_line": None, "over": None, "under": None,
+                "fair_over": None, "fair_under": None, "books": {}, "alts": [],
+            })
+            if o.get("bookOverUnder") is not None:
+                entry["line"] = float(o["bookOverUnder"])
+            if o.get("fairOverUnder") is not None:
+                entry["fair_line"] = float(o["fairOverUnder"])
+            am, fair_am = _sgo_american(o.get("bookOdds")), _sgo_american(o.get("fairOdds"))
+            if am is not None:
+                entry[slot] = am
+            if fair_am is not None:
+                entry[f"fair_{slot}"] = fair_am
+            for book, b in (o.get("byBookmaker") or {}).items():
+                if not b.get("available"):
+                    continue
+                bam = _sgo_american(b.get("odds"))
+                if bam is None:
+                    continue
+                be = entry["books"].setdefault(book, {"book": book, "line": b.get("overUnder"), "over": None, "under": None})
+                be[slot] = bam
+                if b.get("overUnder") is not None:
+                    be["line"] = b.get("overUnder")
+
+    for entry in lines.values():
+        if not entry["books"] and (entry["over"] is not None or entry["under"] is not None):
+            entry["books"]["sgo"] = {"book": "sgo consensus", "line": entry["line"],
+                                      "over": entry["over"], "under": entry["under"]}
+        entry["books"] = sorted(entry["books"].values(),
+                                 key=lambda b: BOOK_ORDER.index(b["book"]) if b["book"] in BOOK_ORDER else 99)
+
+    record_line_history(lines)
+    out = {"pulled": time.time(), "events": len(events), "lines": lines}
+    SGO_FILE.write_text(json.dumps(out))
+    return out
 
 
 def _get(path, **params):
@@ -263,6 +432,8 @@ def build_board():
 
     print("NHL: fetching upcoming schedule...")
     games = upcoming_games()
+    sgo = load_sgo()
+    line_hist = load_line_history()
 
     latest = df.sort_values("sw").groupby("athlete_id").tail(1).set_index("athlete_id")
     rows = []
@@ -282,7 +453,7 @@ def build_board():
                         continue
                     est = float(int(hl[mkey].tail(8).mean())) + 0.5
                     rk = ranks.get((opp, pos, mkey))
-                    rows.append({
+                    row = {
                         "id": f"{aid}|{mkey}|{g['id']}", "pid": aid, "player": p["name"],
                         "pos": pos, "team": team, "opp": opp, "home": 1 if team == g["home"] else 0,
                         "game": g["id"], "img": p.headshot if isinstance(p.headshot, str) else None,
@@ -297,7 +468,19 @@ def build_board():
                                  1 if r.team == g["home"] else (0 if r.team == g["away"] else None),
                                  None, None] for r in hl.itertuples()],
                         "vol": round(float(recent_min), 1),
-                    })
+                        "ev_over": None, "ev_under": None, "fair_line": None, "real_alts": [],
+                        "line_history": line_hist.get(f"{norm_name(p['name'])}|{mkey}|{g['id']}"),
+                    }
+                    sg = sgo["lines"].get(f"{norm_name(p['name'])}|{mkey}|{g['id']}")
+                    if sg and sg["books"]:
+                        line = sg["line"] if sg["line"] is not None else est
+                        row.update(line=line, src="book", over=sg["over"], under=sg["under"], books=sg["books"])
+                        comparable = sg["fair_line"] is not None and abs(line - sg["fair_line"]) <= 1.0
+                        if comparable:
+                            row["ev_over"] = ev_pct(sg["over"], sg["fair_over"])
+                            row["ev_under"] = ev_pct(sg["under"], sg["fair_under"])
+                        row["fair_line"] = sg["fair_line"]
+                    rows.append(row)
 
     recent = {}
     for mkey in MARKETS:
@@ -316,7 +499,8 @@ def build_board():
                 recent[f"{def_team}|{pos}|{mkey}"] = entries
 
     board = {"season": LAST_SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
-             "inj_week": 0, "built": time.time(), "has_key": False, "odds_pulled": None, "odds_remaining": None}
+             "inj_week": 0, "built": time.time(), "has_key": bool(load_sgo_key()),
+             "odds_pulled": sgo.get("pulled"), "odds_remaining": None}
     return _clean_nans(board)
 
 

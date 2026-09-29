@@ -72,6 +72,12 @@ except Exception as e:
 # publish nothing yet, which is correct: no upcoming games means nothing real to show props for.
 try:
     import nba
+    if sgo_key:
+        try:
+            nba_sgo = nba.pull_sgo(sgo_key, games=nba.upcoming_games())
+            print(f"Pulled real SportsGameOdds lines for NBA: {nba_sgo['events']} events.")
+        except Exception as e:
+            print(f"NBA SportsGameOdds pull failed, publishing with EST-only lines instead: {e}")
     nba_board = nba.build_board()
     if not nba_board["games"] or len(nba_board["props"]) < 20:
         print(f"NBA: only {len(nba_board['games'])} games / {len(nba_board['props'])} props "
@@ -88,6 +94,12 @@ except Exception as e:
 # or nothing yet until real regular-season games exist to build a schedule from.
 try:
     import nhl
+    if sgo_key:
+        try:
+            nhl_sgo = nhl.pull_sgo(sgo_key, games=nhl.upcoming_games())
+            print(f"Pulled real SportsGameOdds lines for NHL: {nhl_sgo['events']} events.")
+        except Exception as e:
+            print(f"NHL SportsGameOdds pull failed, publishing with EST-only lines instead: {e}")
     nhl_board = nhl.build_board()
     if not nhl_board["games"] or len(nhl_board["props"]) < 20:
         print(f"NHL: only {len(nhl_board['games'])} games / {len(nhl_board['props'])} props "
