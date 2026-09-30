@@ -717,6 +717,12 @@ function signalsAligned(p, d) {
   const l10 = d.r.l10;
   if (!l10 || l10.n < 5 || l10.pct < 70) return false;
   if (p.ev_over != null && p.ev_over <= 0) return false;
+  // A 70%+ hit rate over 10 games can still hide an active cold streak right now (e.g. 7 hits then 3
+  // straight misses) -- the aggregate stays "aligned" even though his current form contradicts it.
+  // Block that specific false positive: don't show the badge if he's missed every one of his last 3.
+  const line = lineFor(p);
+  const last3 = p.log.slice(-3).map(x => x[3] > line);
+  if (last3.length === 3 && last3.every(hit => !hit)) return false;
   return true;
 }
 
