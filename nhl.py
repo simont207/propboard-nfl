@@ -39,6 +39,11 @@ SKATER_MARKETS = {           # label, min recent minutes/game to qualify for a l
     "blocks": ("Blocked Shots", 12),
     "hits": ("Hits", 12),
     "pim": ("Penalty Minutes", 12),
+    "minutes": ("Minutes on Ice", 12),
+    # No volume floor for these two -- 0 is a real, common answer (most skaters see little or no
+    # power play time), not a data gap, same reasoning as NFL's volume-floor removal.
+    "pp_toi": ("Powerplay Minutes on Ice", 0),
+    "pp_goals": ("Powerplay Goals", 0),
 }
 GOALIE_MARKETS = {
     "saves": ("Saves", 20),
@@ -288,6 +293,23 @@ def parse_boxscore(summary):
     game_id = str(header.get("id"))
     date = comp.get("date")
     abbrs = {c["team"].get("abbreviation"): c["homeAway"] for c in comp.get("competitors", [])}
+
+    # Power-play goals per athlete this game. Not a boxscore stat -- ESPN doesn't break goals down by
+    # strength state in the per-player totals, but each scoring PLAY carries a real strength.text tag
+    # ("Even Strength"/"Power Play"/"Shorthanded"/"Empty Net", confirmed against live games before
+    # writing this), so it's counted here from the play-by-play instead.
+    pp_goals = {}
+    for play in summary.get("plays") or []:
+        if play.get("type", {}).get("text") != "Goal":
+            continue
+        if (play.get("strength") or {}).get("text") != "Power Play":
+            continue
+        for part in play.get("participants") or []:
+            if part.get("type") == "scorer":
+                aid = (part.get("athlete") or {}).get("id")
+                if aid:
+                    pp_goals[aid] = pp_goals.get(aid, 0) + 1
+
     rows = []
     for team_block in bx.get("players", []):
         team = team_block["team"].get("abbreviation")
@@ -324,6 +346,7 @@ def parse_boxscore(summary):
                         "saves": num("saves"), "goals_against": num("goalsAgainst"),
                         "goals": 0.0, "assists": 0.0, "points": 0.0, "sog": 0.0,
                         "blocks": 0.0, "hits": 0.0, "pim": num("penaltyMinutes"),
+                        "pp_toi": 0.0, "pp_goals": 0.0,
                     })
                 else:
                     g, a_ = num("goals"), num("assists")
@@ -331,6 +354,8 @@ def parse_boxscore(summary):
                         "goals": g, "assists": a_, "points": g + a_, "sog": num("shotsTotal"),
                         "blocks": num("blockedShots"), "hits": num("hits"), "pim": num("penaltyMinutes"),
                         "saves": 0.0, "goals_against": 0.0,
+                        "pp_toi": _toi_minutes(stats.get("powerPlayTimeOnIce")),
+                        "pp_goals": float(pp_goals.get(aid, 0)),
                     })
                 rows.append(base)
     return rows

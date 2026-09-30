@@ -577,6 +577,7 @@ const SPORT_MARKETS = {
   nhl: [['all','All props'],
     ['goals','Goals'],['assists','Assists'],['points','Points'],['sog','Shots on Goal'],
     ['blocks','Blocked Shots'],['hits','Hits'],['pim','Penalty Minutes'],
+    ['minutes','Minutes on Ice'],['pp_toi','Powerplay Minutes on Ice'],['pp_goals','Powerplay Goals'],
     ['saves','Saves'],['goals_against','Goals Against']],
 };
 let MARKETS = SPORT_MARKETS[SPORT];
@@ -1006,7 +1007,7 @@ function renderTop() {
 }
 
 // ---- player page ------------------------------------------------------
-const PV = { win: 'l10', f: {}, key: null, zone: null, sstats: 'avg' };
+const PV = { win: 'l10', f: {}, key: null, zone: null, sstats: 'avg', nhlStat: null, rbStat: null };
 const GRADES = ['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','F'];
 const gcls = L => 'g' + (L[0] === 'F' ? 'D' : L[0]);
 function poolN(pos, market) { return board?.dvp?.[`${pos}|${market}`]?.n || 32; }
@@ -1161,11 +1162,11 @@ function trendChart(gs, recentN, priorAvg) {
     <text x="${L - 8}" y="${ry + 4}" fill="#8b9a91" font-size="11" text-anchor="end">${fmtNum(Math.round(priorAvg * 10) / 10)}</text></svg></div>`;
 }
 
-// Receivers only: pulls this same player's sibling receiving props for this same game (rec,
-// targets, rec yds, longest rec) and matches their game logs by game_id (log index 8) so we can
-// show real per-game targets/receptions side by side without any new backend data.
+// WR only (Simon's explicit call -- RBs get their own rushing tab card below instead). Pulls this
+// same player's sibling receiving props for this same game (rec, targets, rec yds, longest rec) and
+// matches their game logs by game_id (log index 8), no new backend data.
 function supportingStatsData(p) {
-  if (!['WR', 'TE', 'RB'].includes(p.pos)) return null;
+  if (p.pos !== 'WR') return null;
   const sibling = mk => board.props.find(x => x.pid === p.pid && x.game === p.game && x.market === mk);
   const recProp = sibling('rec'), tgtProp = sibling('targets_m');
   if (!recProp || !tgtProp) return null;
@@ -1226,6 +1227,76 @@ function supportingStatsHtml(p) {
       <line x1="${L}" x2="${Wd - 6}" y1="${y0}" y2="${y0}" stroke="#263029"/>${bars}</svg></div>
     <div class="note"><span style="color:#4ade80">■</span> Receptions &nbsp; <span style="color:#2f3a35">■</span> Targets</div>
   </div>`;
+}
+
+// Shared tabbed single-stat viewer: each tab is a sibling market for this same player+game, showing
+// its own avg/median value plus a per-game bar chart for whichever tab is active. `stateKey` is the
+// PV field that remembers the active tab (e.g. 'nhlStat', 'rbStat') so different callers don't clobber
+// each other's selection. Used for NHL's Minutes on Ice/PP TOI/Shots on Goal/PP Goals and NFL RBs'
+// rushing breakdown below -- both matched a competitor reference Simon shared with this exact tab UI.
+function tabbedStatCard(p, tabDefs, stateKey) {
+  const tabs = tabDefs.map(([mk, label]) => [mk, label, board.props.find(x => x.pid === p.pid && x.game === p.game && x.market === mk)])
+    .filter(([, , prop]) => prop && prop.log.length);
+  if (!tabs.length) return '';
+  const active = tabs.find(([mk]) => mk === PV[stateKey]) ? PV[stateKey] : tabs[0][0];
+  const [, activeLabel, activeProp] = tabs.find(([mk]) => mk === active);
+  const games = activeProp.log.slice(-10);
+  const avg = a => a.reduce((s, v) => s + v, 0) / a.length;
+  const median = a => { const s = [...a].sort((x, y) => x - y), m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  const calc = a => PV.sstats === 'median' ? median(a) : avg(a);
+  const vals = games.map(g => g[3]);
+
+  const Wd = 1000, Hd = 240, L = 44, T = 14, B = 40, avail = Wd - L - 10;
+  const max = Math.max(...vals, 1) * 1.15;
+  const slot = Math.min(96, avail / games.length), bw = Math.min(60, slot * 0.62);
+  const y = v => T + (Hd - T - B) * (1 - v / max), y0 = y(0);
+  const bars = games.map((g, i) => {
+    const cx = L + slot * i + slot / 2, top = y(g[3]), h = Math.max(2, y0 - top);
+    return `<g>
+      <rect x="${cx - bw / 2}" y="${y0 - h}" width="${bw}" height="${h}" rx="3" fill="#6b7280"><title>${fmtNum(g[3])}</title></rect>
+      <text x="${cx}" y="${y0 - h - 8}" fill="#e8efeb" font-size="12" font-weight="700" text-anchor="middle">${fmtNum(g[3])}</text>
+      <text x="${cx}" y="${y0 + 16}" fill="#8b9a91" font-size="11" text-anchor="middle">${fmtDate(g[4])}</text>
+      <text x="${cx}" y="${y0 + 30}" fill="#8b9a91" font-size="11" text-anchor="middle">${g[5] ? '' : '@'}${esc(g[2])}</text>
+    </g>`;
+  }).join('');
+
+  return `<div class="chartcard" style="margin-top:14px;padding:14px 16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <b>Supporting Stats</b>
+      <div class="seg" id="pvSStats"><button data-v="avg" class="${PV.sstats === 'avg' ? 'on' : ''}">Average</button><button data-v="median" class="${PV.sstats === 'median' ? 'on' : ''}">Median</button></div>
+    </div>
+    <div style="display:flex;gap:22px;flex-wrap:wrap;margin:14px 0;border-bottom:1px solid var(--line);padding-bottom:10px">
+      ${tabs.map(([mk, label, prop]) => {
+        const tv = calc(prop.log.slice(-10).map(g => g[3]));
+        const on = mk === active;
+        return `<button data-statkey="${stateKey}" data-tab="${mk}" style="background:none;border:none;padding:0 0 8px;text-align:left;cursor:pointer;border-bottom:2px solid ${on ? 'var(--text)' : 'transparent'}">
+          <div style="font-weight:700;font-size:13px;color:${on ? 'var(--text)' : 'var(--muted)'}">${esc(label)}</div>
+          <div class="muted" style="font-size:13px">${fmtNum(Math.round(tv * 10) / 10)}</div>
+        </button>`;
+      }).join('')}
+    </div>
+    <div style="overflow-x:auto"><svg viewBox="0 0 ${Wd} ${Hd}" style="width:100%;min-width:420px;display:block">
+      <line x1="${L}" x2="${Wd - 6}" y1="${y0}" y2="${y0}" stroke="#263029"/>${bars}</svg></div>
+    <div class="note">${esc(activeLabel)}, last ${games.length} games.</div>
+  </div>`;
+}
+
+const NHL_SSTATS_TABS = [['minutes', 'Minutes on Ice'], ['pp_toi', 'Powerplay Minutes on Ice'],
+  ['sog', 'Shots on Goal'], ['pp_goals', 'Powerplay Goals']];
+function nhlSupportingStatsHtml(p) {
+  if (SPORT !== 'nhl' || p.pos === 'G') return '';
+  return tabbedStatCard(p, NHL_SSTATS_TABS, 'nhlStat');
+}
+
+// RBs only, per Simon's call (WRs get the receiving card above instead). Rush Attempts/Rushing
+// Yards/Longest Rush are all markets already on the board -- no new backend data needed. The
+// reference screenshot also showed team-level "Rushing Plays" and "% Rush Share" tabs; those need
+// new team-level rush-attempt aggregation we don't have yet, so they're left out here rather than
+// faked, same call already made for the WR card's Passing Plays/Target Share gap.
+const RB_RUSH_TABS = [['rush_att', 'Rush Attempts'], ['rush_yds', 'Rushing Yards'], ['long_rush', 'Longest Rush']];
+function rbRushStatsHtml(p) {
+  if (SPORT !== 'nfl' || p.pos !== 'RB') return '';
+  return tabbedStatCard(p, RB_RUSH_TABS, 'rbStat');
 }
 
 // Template-only summary sentences built strictly from numbers already computed for this player/prop —
@@ -1405,6 +1476,8 @@ function renderPlayer(p) {
         }).join('')}</div></div>`;
     })()}
     ${supportingStatsHtml(p)}
+    ${nhlSupportingStatsHtml(p)}
+    ${rbRushStatsHtml(p)}
     ${(() => {
       const fit = board.zone_fit && board.zone_fit[`${p.team}|${p.opp}`];
       if (!fit || fit.length < 2) return '';
@@ -1519,6 +1592,7 @@ function renderPlayer(p) {
   if ($('#chipClear')) $('#chipClear').onclick = () => { PV.f = {}; route(); };
   document.querySelectorAll('#pvSide2 button').forEach(b => b.onclick = () => setSide(b.dataset.v));
   document.querySelectorAll('#pvSStats button').forEach(b => b.onclick = () => { PV.sstats = b.dataset.v; route(); });
+  document.querySelectorAll('#pvMain [data-statkey]').forEach(b => b.onclick = () => { PV[b.dataset.statkey] = b.dataset.tab; route(); });
   if ($('#pvLines')) $('#pvLines').onclick = openModal;
   if ($('#pvAdd')) $('#pvAdd').onclick = () => {
     const realOdds = (p.src === 'book' && line === p.line) ? (side === 'over' ? p.over : p.under) : null;
@@ -1604,7 +1678,8 @@ const ALT = { rec_yds: { step: 10, min: 30 }, rush_yds: { step: 10, min: 30 }, r
   oreb: { list: [1, 2, 3, 4, 5] }, dreb: { step: 1, min: 3 }, dd: { list: [1] }, td: { list: [1] },
   goals: { list: [1, 2, 3] }, points: { step: 1, min: 1 }, sog: { step: 1, min: 2 },
   blocks: { list: [1, 2, 3, 4] }, hits: { step: 1, min: 2 }, pim: { list: [2, 4, 6] },
-  saves: { step: 2, min: 20 }, goals_against: { list: [1, 2, 3, 4] } };
+  saves: { step: 2, min: 20 }, goals_against: { list: [1, 2, 3, 4] },
+  minutes: { step: 2, min: 10 }, pp_toi: { step: 1, min: 1 }, pp_goals: { list: [1, 2, 3] } };
 function ladder(market, vals) {
   const a = ALT[market], mx = Math.max(...vals, 0), out = [];
   if (a.list) return a.list.filter(t => t <= mx);
