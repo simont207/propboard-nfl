@@ -1237,7 +1237,7 @@ function supportingStatsHtml(p) {
 function tabbedStatCard(p, tabDefs, stateKey) {
   const tabs = tabDefs.map(([mk, label]) => [mk, label, board.props.find(x => x.pid === p.pid && x.game === p.game && x.market === mk)])
     .filter(([, , prop]) => prop && prop.log.length);
-  if (!tabs.length) return '';
+  if (tabs.length < 2) return '';   // a single tab has nothing to switch between, not worth a card
   const active = tabs.find(([mk]) => mk === PV[stateKey]) ? PV[stateKey] : tabs[0][0];
   const [, activeLabel, activeProp] = tabs.find(([mk]) => mk === active);
   const games = activeProp.log.slice(-10);
