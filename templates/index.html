@@ -1848,7 +1848,12 @@ function renderInsightsFilterContent(allCards) {
       <input type="checkbox" ${IF.teams.has(t) ? 'checked' : ''}>${timg(t, null, 22)}<b>${esc(t)}</b></label>`).join('');
   }
   if (IFNAV === 'games') {
-    return board.games.map(g => `<label class="if-check-row" data-game="${esc(g.id)}">
+    // Only games that haven't kicked off yet -- the board is a static snapshot rebuilt every few
+    // hours, so a game that was "pre" when it last rebuilt can genuinely be live or final by the time
+    // someone's browsing; state (pre/in/post) is real-time from ESPN at build time, not guessed.
+    const upcoming = board.games.filter(g => g.state === 'pre');
+    if (!upcoming.length) return `<div class="muted">No games left to start right now.</div>`;
+    return upcoming.map(g => `<label class="if-check-row" data-game="${esc(g.id)}">
       <input type="checkbox" ${IF.games.has(g.id) ? 'checked' : ''}>
       <span style="display:flex;align-items:center;gap:4px">${timg(teamCode(g.away), g.away_logo, 24)}${timg(teamCode(g.home), g.home_logo, 24)}</span>
       <div><div>${esc(teamCode(g.away))} @ ${esc(teamCode(g.home))}</div><div class="meta">${fmtTime(g.date)}</div></div></label>`).join('');
