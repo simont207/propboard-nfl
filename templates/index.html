@@ -277,19 +277,14 @@
   .mrow { padding: 8px 0; border-top: 1px solid #1c2420; }
   .mrow .ml { font-size: 12px; color: var(--muted); margin-bottom: 5px; }
   .alts { display: flex; gap: 6px; flex-wrap: wrap; }
-  .alt { background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; padding: 5px 10px; cursor: pointer;
+  .alt { background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; padding: 5px 10px; display: inline-block;
     font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; line-height: 1.15; }
   .alt small { display: block; font-weight: 500; font-size: 10px; color: var(--muted); }
-  .alt:hover { border-color: var(--green); }
   .alt.full { border-color: #1f6b3d; } .alt.full small { color: var(--green); }
   .alt.near { border-style: dashed; border-color: #7a5d12; } .alt.near small { color: var(--amber); }
-  .alt.on { background: var(--green); color: #06210f; border-color: var(--green); } .alt.on small { color: #06210f; }
   .altrow td { background: var(--panel2); padding: 12px 14px; white-space: normal; }
   .qbtn { display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); background: var(--bg);
     border-radius: 6px; cursor: pointer; margin-left: 4px; color: var(--text); vertical-align: middle; }
-  .addbtn { width: 22px; height: 22px; font-size: 13px; font-weight: 800; padding: 0; }
-  .addbtn.on { background: var(--green); color: #06210f; border-color: var(--green); }
-  .addbtn:hover { border-color: var(--green-dim); }
   .altbtn { padding: 3px 8px; font-size: 11px; font-weight: 600; white-space: nowrap; }
   .altbtn.on { border-color: var(--green); color: var(--green); }
   .altbtn:hover { border-color: var(--green-dim); }
@@ -297,51 +292,12 @@
   .ev.g { background: #123524; color: var(--green); } .ev.r { background: #4a1d1d; color: var(--red); }
   .ev.n { background: var(--panel2); color: var(--muted); }
 
-  /* parlay slip */
-  #slip { position: fixed; top: 0; right: 0; bottom: 0; width: 350px; max-width: 100%; background: var(--panel);
-    border-left: 1px solid var(--line); z-index: 15; transform: translateX(100%); transition: transform .2s;
-    display: flex; flex-direction: column; }
-  body.slip-open #slip { transform: none; }
-  @media (min-width: 1150px) { body.slip-open main { padding-right: 372px; } }
-  .slip-h { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px;
-    border-bottom: 1px solid var(--line); }
-  .slip-legs { flex: 1; overflow-y: auto; }
-  .leg { display: grid; grid-template-columns: 1fr 74px 26px; gap: 8px; align-items: center; padding: 10px 14px;
-    border-bottom: 1px solid #1c2420; }
-  .leg .lstat { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .legodds { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px;
-    text-align: right; }
-  .x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 16px; }
-  .x:hover { color: var(--red); }
-  .slip-f { border-top: 1px solid var(--line); padding: 14px 16px; }
-  .slip-f input { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; width: 80px; }
-  .corr { padding: 10px 14px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel2); }
-  .corr-row { font-size: 12px; line-height: 1.5; padding: 4px 0; }
-  .corr-row.g { color: var(--green); } .corr-row.r { color: var(--red); }
-  .corr-row b { color: var(--text); }
-  .bignum { font-size: 24px; font-weight: 800; }
-  #slipBar { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 14;
-    display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--green); color: #06210f;
-    border: 0; border-radius: 14px; padding: 13px 16px; font-weight: 700; font-size: 15px; cursor: pointer;
-    box-shadow: 0 8px 28px rgba(0,0,0,.55); text-align: left; }
-  #slipBar small { font-weight: 600; opacity: .8; display: block; font-size: 12px; }
-  #slipBar .go { background: #06210f; color: var(--green); border-radius: 9px; padding: 7px 13px; white-space: nowrap; }
-  #slipBar[hidden] { display: none !important; }
-  body.has-bar main { padding-bottom: 110px; }
-  .slip-keep { display: none; width: 100%; margin-top: 12px; padding: 12px; font-size: 15px; }
-  @media (min-width: 1150px) { #slipBar { display: none !important; } body.has-bar main { padding-bottom: 60px; } }
-  @media (max-width: 1149px) {
-    .slip-keep { display: block; }
-    .toast { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
-    body.slip-open .toast { bottom: 20px; }
-  }
   @media (max-width: 700px) {
-    #slip { width: 100%; }
     input, select, textarea { font-size: 16px !important; }
     .alt { padding: 8px 13px; }
   }
 
-  /* filters panel (same slide-out mechanics as the parlay slip) */
+  /* filters panel */
   #filtersPanel { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; max-width: 100%; background: var(--panel);
     border-left: 1px solid var(--line); z-index: 15; transform: translateX(100%); transition: transform .2s;
     display: flex; flex-direction: column; }
@@ -435,11 +391,10 @@ window.onerror = function (msg, src, line) {
   </div>
   <div class="spacer"></div>
   <a class="btn" id="btnInsights" href="#/insights">Insights</a>
-  <div class="seg" id="oddsFmt" title="How odds are shown (Odds columns, alt lines, parlay slip)">
+  <div class="seg" id="oddsFmt" title="How odds are shown (Odds columns, alt lines)">
     <button data-f="american" class="on">American</button>
     <button data-f="decimal">Decimal</button>
   </div>
-  <button class="btn" id="btnSlip">Parlay <b id="slipN">0</b></button>
   <button class="btn" id="btnRefresh">↻ Refresh stats</button>
   <button class="btn primary" id="btnLines">Sportsbook lines</button>
 </header>
@@ -448,7 +403,7 @@ window.onerror = function (msg, src, line) {
 <div id="boardView">
   <div id="sportBanner"></div>
   <div class="games" id="games"></div>
-  <div class="note" style="margin:-4px 0 10px">Click a game to see every player's alt lines and build a parlay.</div>
+  <div class="note" style="margin:-4px 0 10px">Click a game to see every player's props for that matchup.</div>
 
   <div class="pills" id="markets"></div>
   <div class="note" style="margin:-4px 0 10px">Tap a prop to toggle it on or off — pick just one or several at once. Tap <b>All props</b> to clear the picks and show everything.</div>
@@ -470,6 +425,7 @@ window.onerror = function (msg, src, line) {
     <label id="tierOnlyWrap" hidden><input type="checkbox" id="tierOnly"> Tiered plays only</label>
     <button class="btn" id="btnFilters">Filters <b id="filtersCount">0</b></button>
     <button class="chip" id="clearGame" hidden>✕ Game filter</button>
+    <button class="chip" id="openGamePage" hidden>Alt lines for this game →</button>
   </div>
 
   <div class="tablewrap"><table>
@@ -500,8 +456,6 @@ window.onerror = function (msg, src, line) {
     Must be 21+ (18+ in some places). Problem gambling? Call 1-800-GAMBLER.</p>
 </footer>
 
-<aside id="slip"></aside>
-<button id="slipBar" hidden></button>
 <aside id="filtersPanel"></aside>
 <aside id="insightsFiltersPanel"></aside>
 <div class="veil" id="veil"></div>
@@ -543,7 +497,7 @@ if (PUBLIC) document.body.classList.add('public');
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // PropBoard covers two sports off one shared UI. Everything below reads board.props/board.games
-// generically (no NFL-specific field names), so the same table/player-page/game-page/parlay code
+// generically (no NFL-specific field names), so the same table/player-page/game-page code
 // works for both — only the market list, header title and cache keys are sport-specific.
 let SPORT = 'nfl';
 const SPORT_TITLE = { nfl: 'NFL', ncaaf: 'NCAAF', nba: 'NBA', nhl: 'NHL' };
@@ -666,9 +620,7 @@ function switchSport(sport) {
   Object.assign(IF, { type: '', teams: new Set(), games: new Set(), players: new Set(), markets: new Set(),
     dir: '', splits: new Set(), oddsMin: '', oddsMax: '', minhit: 0, sort: 'pct' });
   overrides = {}; try { overrides = JSON.parse(localStorage.getItem(lsKey('pb_lines')) || '{}'); } catch (e) {}
-  EXPANDED.clear(); SLIP.length = 0; SLIP_OPEN = false;
-  try { SLIP.push(...JSON.parse(localStorage.getItem(lsKey('pb_slip')) || '[]')); } catch (e) {}
-  STAKE = +localStorage.getItem(lsKey('pb_stake')) || 10;
+  EXPANDED.clear();
   $('#q').value = ''; $('#pos').value = ''; $('#team').value = ''; $('#minhit').value = 0; $('#hideout').checked = true;
   document.querySelectorAll('#side button').forEach(b => b.classList.toggle('on', b.dataset.v === 'over'));
   gsItems = []; $('#gresults').hidden = true;
@@ -685,7 +637,7 @@ function setBoard(b) {
   const teams = [...new Set(b.props.map(p => p.team))].sort();
   $('#team').innerHTML = '<option value="">All teams</option>' + teams.map(t => `<option>${t}</option>`).join('');
   $('#team').value = F.team;
-  renderTop(); render(); route(); renderSlip(); renderFilters();
+  renderTop(); render(); route(); renderFilters();
   $('#gsearch').disabled = false;
 }
 
@@ -900,7 +852,7 @@ function filtered() {
 function render() {
   if (!board) return;
   renderHead();
-  $('#tierOnlyWrap').hidden = !activeQ1(); $('#clearGame').hidden = !F.game;
+  $('#tierOnlyWrap').hidden = !activeQ1(); $('#clearGame').hidden = !F.game; $('#openGamePage').hidden = !F.game;
   document.querySelectorAll('#markets .pill').forEach(el => el.classList.toggle('on', el.dataset.k === 'all' ? F.markets.size === 0 : F.markets.has(el.dataset.k)));
   document.querySelectorAll('#games .game').forEach(el => el.classList.toggle('on', el.dataset.id === F.game));
   const rows = filtered(), CAP = 300, shown = rows.slice(0, CAP);
@@ -910,7 +862,6 @@ function render() {
     const rk = p.opp_rank;
     const rn = poolN(p.pos, p.market), rq = Math.ceil(rn * 0.25);
     const rkc = rk == null ? 'n' : (F.side === 'over' ? (rk <= rq ? 'g' : rk > rn - rq ? 'r' : 'm') : (rk > rn - rq ? 'g' : rk <= rq ? 'r' : 'm'));
-    const onCur = inSlip(p, d.line, F.side);
     const expanded = F.altLinesOpen || EXPANDED.has(p.id);
     const row = `<tr class="row" data-id="${esc(p.id)}">
       <td><div class="player">${pimg(p.player, p.img, 38)}
@@ -921,8 +872,6 @@ function render() {
       ${activeQ1() ? tierCell(p) : ''}
       <td><input class="lineinput" type="number" step="0.5" value="${d.line}" data-id="${esc(p.id)}">
         <span class="tag ${srcTagOf(p)[0]}">${srcTagOf(p)[1]}</span>
-        <button class="qbtn addbtn ${onCur ? 'on' : ''}" data-id="${esc(p.id)}" data-t="${d.line}" data-side="${F.side}"
-          title="${onCur ? 'Remove from parlay slip' : `Add ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} to your parlay`}">${onCur ? '✓' : '+'}</button>
         ${F.altLinesOpen ? '' : `<button class="qbtn altbtn ${expanded ? 'on' : ''}" data-id="${esc(p.id)}" title="Show alt lines for this prop">Alt${expanded ? ' ▴' : ' ▾'}</button>`}</td>
       <td>${fmtOdds(odds)}${evBadge(p, F.side)}</td>
       ${hitCell(d.r.l5)}${hitCell(d.r.l10)}${hitCell(d.r.season)}${hitCell(d.r.h2h)}
@@ -934,11 +883,11 @@ function render() {
     const { chips, win, miss } = useReal ? { chips: [], win: 0, miss: 0 } : bestAltChips(p);
     const clearedText = miss ? `all but one of his last ${win}` : `each of his last ${win}`;
     const altHtml = useReal ? realAltHtml(p) : chips.length
-      ? `<div class="alts">${chips.map(c => `<button class="alt ${inSlip(p, c.t, 'over') ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(p.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div>`
+      ? `<div class="alts">${chips.map(c => `<span class="alt ${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></span>`).join('')}</div>`
       : `<div class="muted" style="font-size:12px">No alt line cleared in ${clearedText} games. <a href="#/g/${esc(p.game)}" style="color:var(--green)">Open the full game page</a> to see his raw numbers.</div>`;
-    const capText = useReal ? 'Real prices from sportsbooks — click one to add it at that price' : 'Alt lines are shown as Over — pick a lower number for an easier hit';
+    const capText = useReal ? 'Real prices from sportsbooks' : 'Alt lines are shown as Over — pick a lower number for an easier hit';
     return row + `<tr class="altrow"><td colspan="${cols().length}">
-      <div class="muted" style="font-size:12px;margin-bottom:6px">${capText}${!useReal && chips.length ? `, cleared in ${clearedText} games` : ''}. Click one to add it (swaps out ${esc(p.label)} ${F.side === 'over' ? 'Over' : 'Under'} ${d.line} if that's in your slip).</div>
+      <div class="muted" style="font-size:12px;margin-bottom:6px">${capText}${!useReal && chips.length ? `, cleared in ${clearedText} games` : ''}.</div>
       ${altHtml}</td></tr>`;
   }).join('') : `<tr><td colspan="${cols().length}"><div class="empty">
     <div class="ic">🔍</div><div class="msg">No props match these filters</div>
@@ -950,19 +899,7 @@ function render() {
     if (e.target.classList.contains('lineinput')) return;
     location.hash = '#/p/' + encodeURIComponent(tr.dataset.id);
   });
-  document.querySelectorAll('#tbody .addbtn').forEach(el => el.onclick = e => {
-    e.stopPropagation();
-    const p = board.props.find(x => x.id === el.dataset.id);
-    const t = +el.dataset.t, addSide = el.dataset.side;
-    // real book odds are only valid for the book's own line -- a custom/overridden line has no matching price
-    const realOdds = (p.src === 'book' && t === p.line) ? (addSide === 'over' ? p.over : p.under) : null;
-    toggleLeg(p, t, addSide, realOdds);
-  });
   document.querySelectorAll('#tbody .altbtn').forEach(el => el.onclick = e => { e.stopPropagation(); toggleAltRow(el.dataset.id); });
-  document.querySelectorAll('#tbody .altrow .alt').forEach(el => el.onclick = e => {
-    e.stopPropagation();
-    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, 'over', el.dataset.odds ? +el.dataset.odds : null);
-  });
   document.querySelectorAll('.lineinput').forEach(inp => {
     inp.onclick = e => e.stopPropagation();
     inp.onkeydown = e => { if (e.key === 'Enter') inp.blur(); };
@@ -1420,9 +1357,7 @@ function renderPlayer(p) {
         <div class="muted">${esc(p.team)} · ${esc(p.pos)}${p.inj ? `<span class="tag ${esc(p.inj)}">${esc(p.inj)}</span>` : ''}</div></div>
       <div class="stats">
         <div class="stat"><div class="k">${avgLbl}</div><div class="v ${avg == null ? 'n' : fav(avg > line)}">${avg == null ? '–' : (avg > line ? '▲ ' : '▼ ') + fmtNum(Math.round(avg * 10) / 10)}</div></div>
-        <div class="stat"><div class="k">Line</div><div class="v"><input class="lineinput" id="pvLine" type="number" step="0.5" value="${line}"> <span class="tag ${srcTag[0]}">${srcTag[1]}</span>
-          <button class="qbtn addbtn ${inSlip(p, line, side) ? 'on' : ''}" id="pvAdd" data-id="${esc(p.id)}" data-t="${line}" data-side="${side}"
-            title="${inSlip(p, line, side) ? 'Remove from parlay slip' : `Add ${side === 'over' ? 'Over' : 'Under'} ${line} to your parlay`}">${inSlip(p, line, side) ? '✓' : '+'}</button>${evBadge(p, side)}</div></div>
+        <div class="stat"><div class="k">Line</div><div class="v"><input class="lineinput" id="pvLine" type="number" step="0.5" value="${line}"> <span class="tag ${srcTag[0]}">${srcTag[1]}</span>${evBadge(p, side)}</div></div>
         <div class="stat"><div class="k">Prop</div><div class="v">${esc(p.label)}</div></div>
         <div class="stat"><div class="k">Hit rate · ${esc(cur[1])}</div><div class="v ${pcls(R[cur[0]])}">${R[cur[0]].n ? Math.round(R[cur[0]].pct) + '% ' : '–'}<small>${R[cur[0]].n ? R[cur[0]].hits + '/' + R[cur[0]].n : ''}</small></div></div>
         <div class="stat"><div class="k">Matchup rank</div><div class="v ${rkc}">${rk ? ord(rk) : '–'} <small>vs ${esc(p.pos)}</small></div></div>
@@ -1451,15 +1386,15 @@ function renderPlayer(p) {
     })()}
     ${(() => {
       if (p.real_alts && p.real_alts.length) return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
-        <b>Alt lines</b> <span class="muted" style="font-size:12px">— real prices from sportsbooks. Click one to add it at that price.</span>
+        <b>Alt lines</b> <span class="muted" style="font-size:12px">— real prices from sportsbooks.</span>
         <div style="margin-top:8px">${realAltHtml(p)}</div></div>`;
       const { chips, win, miss } = bestAltChips(p);
       const clearedText = miss ? `all but one of his last ${win}` : `each of his last ${win}`;
       if (!chips.length) return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
         <b>Alt lines</b> <span class="muted" style="font-size:12px">— no alt line cleared in ${clearedText} games. Open the game page for more windows.</span></div>`;
       return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
-        <b>Alt lines</b> <span class="muted" style="font-size:12px">— shown as Over, cleared in ${clearedText} games. Click one to add it (swaps your current pick for this prop).</span>
-        <div class="alts" style="margin-top:8px">${chips.map(c => `<button class="alt ${inSlip(p, c.t, 'over') ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(p.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div></div>`;
+        <b>Alt lines</b> <span class="muted" style="font-size:12px">— shown as Over, cleared in ${clearedText} games.</span>
+        <div class="alts" style="margin-top:8px">${chips.map(c => `<span class="alt ${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></span>`).join('')}</div></div>`;
     })()}
     ${(() => {
       const usage = board.usage && board.usage[`${p.team}|${p.pos}`];
@@ -1593,13 +1528,6 @@ function renderPlayer(p) {
   document.querySelectorAll('#pvSStats button').forEach(b => b.onclick = () => { PV.sstats = b.dataset.v; route(); });
   document.querySelectorAll('#pvMain [data-statkey]').forEach(b => b.onclick = () => { PV[b.dataset.statkey] = b.dataset.tab; route(); });
   if ($('#pvLines')) $('#pvLines').onclick = openModal;
-  if ($('#pvAdd')) $('#pvAdd').onclick = () => {
-    const realOdds = (p.src === 'book' && line === p.line) ? (side === 'over' ? p.over : p.under) : null;
-    toggleLeg(p, line, side, realOdds);
-  };
-  document.querySelectorAll('#pvMain .alt').forEach(el => el.onclick = () => {
-    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, 'over', el.dataset.odds ? +el.dataset.odds : null);
-  });
   const li = $('#pvLine');
   li.onkeydown = e => { if (e.key === 'Enter') li.blur(); };
   li.onchange = () => setLine(p, li.value);
@@ -1622,6 +1550,7 @@ $('#minhit').oninput = e => { F.minhit = +e.target.value || 0; render(); if (FIL
 $('#hideout').onchange = e => { F.hideout = e.target.checked; render(); };
 $('#tierOnly').onchange = e => { F.tierOnly = e.target.checked; render(); };
 $('#clearGame').onclick = () => { F.game = ''; render(); if (FILTERS_OPEN) renderFilters(); };
+$('#openGamePage').onclick = () => { location.hash = '#/g/' + F.game; };
 document.querySelectorAll('#side button').forEach(b => b.onclick = () => {
   setSide(b.dataset.v);
 });
@@ -1656,7 +1585,7 @@ if ($('#btnPullSgo')) $('#btnPullSgo').onclick = async () => {
   } catch (e) { toast(e.message, true); }
   b.disabled = SPORT !== 'nfl'; b.textContent = 'Pull real lines + EV now';
 };
-// ---- game page: alt lines + parlay slip --------------------------------
+// ---- game page: alt lines --------------------------------
 const GV = { game: null, market: 'all', team: '', win: 5, miss: 0 };
 const ALT = { rec_yds: { step: 10, min: 30 }, rush_yds: { step: 10, min: 30 }, rush_rec_yds: { step: 10, min: 40 },
   pass_yds: { step: 25, min: 175 }, rec: { step: 1, min: 2 }, pass_tds: { list: [1, 2, 3] }, any_td: { list: [1, 2] },
@@ -1778,24 +1707,13 @@ function zoneChartHtml(p) {
 }
 // Real alt-line prices from SportsGameOdds (NFL only, after a pull) — shown instead of the
 // history-based ladder whenever we have them, since a real bettable price beats a guess from
-// recent games. Clicking one pre-fills the leg's odds, so the parlay payout works immediately.
+// recent games.
 function realAltHtml(p) {
   const alts = p.real_alts.slice(0, 8);
-  // odds intentionally not shown on the chip itself (Simon asked to drop that) -- data-odds stays so
-  // clicking a chip still pre-fills the parlay leg's price correctly, and the book/price is still in
-  // the hover title for anyone who wants it without it being visible on the board by default
-  return `<div class="alts">${alts.map(a => `<button class="alt real ${inSlip(p, a.t, 'over') ? 'on' : ''}"
-      data-id="${esc(p.id)}" data-t="${a.t}" data-odds="${a.over_odds}" data-base=""
-      title="${a.over_book} · ${fmtOdds(a.over_odds)}">${a.t}+</button>`).join('')}</div>`;
+  // odds intentionally not shown on the chip itself (Simon asked to drop that) -- the book/price is
+  // still in the hover title for anyone who wants it without it being visible on the board by default
+  return `<div class="alts">${alts.map(a => `<span class="alt real" title="${a.over_book} · ${fmtOdds(a.over_odds)}">${a.t}+</span>`).join('')}</div>`;
 }
-const legText = l => {
-  const side = l.side || 'over';
-  if (l.market === 'any_td') return side === 'over' ? (l.thr === 1 ? 'Anytime TD' : `${l.thr}+ TDs`) : `Under ${l.thr} TDs`;
-  if (l.market === 'pass_tds') return side === 'over' ? `${l.thr}+ Pass TDs` : `Under ${l.thr} Pass TDs`;
-  if (l.market === 'q1_rec') return `Q1 rec yds ${side === 'over' ? l.thr + '+' : 'Under ' + l.thr}`;
-  if (l.market === 'q1_rush') return `Q1 rush yds ${side === 'over' ? l.thr + '+' : 'Under ' + l.thr}`;
-  return `${l.mlabel} ${side === 'over' ? l.thr + '+' : 'Under ' + l.thr}`;
-};
 
 function renderCompare(id1, id2) {
   const p1 = id1 && board.props.find(x => x.id === id1);
@@ -2187,9 +2105,7 @@ function renderInsights() {
         <span class="chev">▸</span><span class="ml">${desc}</span>
         ${insightHistoryBar(histHits)}
         <span class="pct" style="color:${color}">${Math.round(pct * 100)}%</span>
-        ${p.over != null ? `<span class="insight-odds">${fmtOdds(p.over)}<button class="qbtn addbtn ${inSlip(p, line, 'over') ? 'on' : ''}"
-          data-id="${esc(p.id)}" data-t="${line}" data-side="over"
-          title="${inSlip(p, line, 'over') ? 'Remove from parlay slip' : `Add Over ${line} to your parlay`}">${inSlip(p, line, 'over') ? '✓' : '+'}</button></span>` : ''}
+        ${p.over != null ? `<span class="insight-odds">${fmtOdds(p.over)}</span>` : ''}
       </div>
       <div class="insight-detail" id="${mrowId}" hidden style="margin-top:14px">
         <table class="recent"><tr class="muted"><th>Game</th><th>Opponent</th><th>Result</th></tr>${last10.slice().reverse().map(x =>
@@ -2227,9 +2143,7 @@ function renderInsights() {
         <span class="chev">▸</span><span class="ml">${side === 'over' ? 'Over' : 'Under'} ${line} ${statLabel}</span>
         ${insightHistoryBar(histHits)}
         <span class="pct" style="color:${color}">${Math.round(pct * 100)}%</span>
-        ${odds != null ? `<span class="insight-odds">${fmtOdds(odds)}<button class="qbtn addbtn ${inSlip(p, line, side) ? 'on' : ''}"
-          data-id="${esc(p.id)}" data-t="${line}" data-side="${side}"
-          title="${inSlip(p, line, side) ? 'Remove from parlay slip' : `Add ${side === 'over' ? 'Over' : 'Under'} ${line} to your parlay`}">${inSlip(p, line, side) ? '✓' : '+'}</button></span>` : ''}
+        ${odds != null ? `<span class="insight-odds">${fmtOdds(odds)}</span>` : ''}
       </div>
       <div class="insight-detail" id="${mrowId}" hidden style="margin-top:14px">
         <table class="recent"><tr class="muted"><th>Game</th><th>Opponent (D rank)</th><th>Result</th></tr>${games.slice().reverse().map(x =>
@@ -2260,13 +2174,6 @@ function renderInsights() {
     el.classList.toggle('open', !detail.hidden);
   });
   document.querySelectorAll('#insightsView .insight-nav').forEach(el => el.onclick = () => { location.hash = el.dataset.nav; });
-  document.querySelectorAll('#insightsView .addbtn').forEach(el => el.onclick = e => {
-    e.stopPropagation();
-    const p = board.props.find(x => x.id === el.dataset.id);
-    const t = +el.dataset.t;
-    const realOdds = (p.src === 'book' && t === p.line) ? p.over : null;
-    toggleLeg(p, t, 'over', realOdds);
-  });
 }
 
 function renderGame(g) {
@@ -2301,192 +2208,31 @@ function renderGame(g) {
       <label>Games <select id="gvWin"><option value="3" ${GV.win === 3 ? 'selected' : ''}>Last 3</option><option value="5" ${GV.win === 5 ? 'selected' : ''}>Last 5</option><option value="10" ${GV.win === 10 ? 'selected' : ''}>Last 10</option></select></label>
       <label>Must have cleared <select id="gvMiss"><option value="0" ${GV.miss === 0 ? 'selected' : ''}>every game</option><option value="1" ${GV.miss === 1 ? 'selected' : ''}>all but one game</option></select></label>
     </div>
-    <div class="note" style="margin:0 0 4px">Each button is an alt line ("60+" = 60 or more) he cleared in <b>${GV.miss ? 'all but one of' : 'each of'} his ${winTxt} games</b>, with the record under it.
-      Click a line to add it to your parlay (click again to remove; picking a different line for the same stat swaps it).
-      A <span style="color:var(--amber)">dashed amber</span> button is the next line up, shown when he cleared it in at least half of those games.</div>
+    <div class="note" style="margin:0 0 4px">Each chip is an alt line ("60+" = 60 or more) he cleared in <b>${GV.miss ? 'all but one of' : 'each of'} his ${winTxt} games</b>, with the record under it.
+      A <span style="color:var(--amber)">dashed amber</span> chip is the next line up, shown when he cleared it in at least half of those games.</div>
     <div class="gcards">${players.map(({ p, rows }) => `
       <div class="pcard"><div class="ph">${pimg(p.player, p.img, 42)}
         <div><a href="#/p/${encodeURIComponent(rows[0].p.id)}">${esc(p.player)}</a>${p.inj ? `<span class="tag ${esc(p.inj)}">${esc(p.inj[0])}</span>` : ''}
         <div class="muted" style="font-size:12px">${esc(p.pos)} · ${esc(p.team)}</div></div></div>
         ${rows.map(({ p: q, chips, useReal }) => `<div class="mrow"><div class="ml">${q.market === 'q1_rec' ? 'Q1 receiving yards' : q.market === 'q1_rush' ? 'Q1 rushing yards' : esc(q.label)}${useReal ? ' <span class="muted" style="font-size:11px">· real prices</span>' : ''}</div>
-          ${useReal ? realAltHtml(q) : `<div class="alts">${chips.map(c => `<button class="alt ${inSlip(q, c.t) ? 'on' : c.near ? 'near' : c.hits === c.n ? 'full' : ''}" data-id="${esc(q.id)}" data-t="${c.t}" data-base="${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></button>`).join('')}</div>`}</div>`).join('')}
+          ${useReal ? realAltHtml(q) : `<div class="alts">${chips.map(c => `<span class="alt ${c.near ? 'near' : c.hits === c.n ? 'full' : ''}">${c.t}+<small>${c.hits}/${c.n}</small></span>`).join('')}</div>`}</div>`).join('')}
       </div>`).join('') || `<div class="empty" style="grid-column:1/-1"><div class="ic">🎟️</div><div class="msg">No alt lines cleared</div><div class="sub">${GV.miss ? 'in all but one of' : 'in every one of'} the ${winTxt} games. Try "all but one game" or a longer window.</div></div>`}</div>`;
   document.querySelectorAll('#gameView [data-m]').forEach(el => el.onclick = () => { GV.market = el.dataset.m; renderGame(g); });
   document.querySelectorAll('#gvTeam button').forEach(el => el.onclick = () => { GV.team = el.dataset.t; renderGame(g); });
   $('#gvWin').onchange = e => { GV.win = +e.target.value; renderGame(g); };
   $('#gvMiss').onchange = e => { GV.miss = +e.target.value; renderGame(g); };
   $('#gvBoard').onclick = () => openGameOnBoard(g.id, true);
-  document.querySelectorAll('#gameView .alt').forEach(el => el.onclick = () => {
-    toggleLeg(board.props.find(x => x.id === el.dataset.id), +el.dataset.t, 'over', el.dataset.odds ? +el.dataset.odds : null);
-  });
 }
 
-let SLIP = [], SLIP_OPEN = false, STAKE = 10;
 let FILTERS_OPEN = false;
-let slipAutoCloseTimer = null;
-try { SLIP = JSON.parse(localStorage.getItem(lsKey('pb_slip')) || '[]'); STAKE = +localStorage.getItem(lsKey('pb_stake')) || 10; } catch (e) {}
-const saveSlip = () => { try { localStorage.setItem(lsKey('pb_slip'), JSON.stringify(SLIP)); localStorage.setItem(lsKey('pb_stake'), STAKE); } catch (e) {} };
-function inSlip(p, t, side = 'over') {
-  return SLIP.some(l => l.pid === p.pid && l.market === p.market && l.game === p.game && l.thr === t && (l.side || 'over') === side);
-}
 function toggleAltRow(id) {          // board: open/close the inline alt-line row under a prop, keeping scroll steady
   const y = window.scrollY;
   EXPANDED.has(id) ? EXPANDED.delete(id) : EXPANDED.add(id);
   render();
   window.scrollTo(0, y);
 }
-function toggleLeg(p, thr, side = 'over', realOdds = null) {
-  const i = SLIP.findIndex(l => l.pid === p.pid && l.market === p.market && l.game === p.game);
-  if (i >= 0 && SLIP[i].thr === thr && (SLIP[i].side || 'over') === side) SLIP.splice(i, 1);
-  else {
-    const leg = { pid: p.pid, market: p.market, game: p.game, thr, side, name: p.player, mlabel: p.label, team: p.team,
-                  opp: p.opp, home: p.home, odds: realOdds != null ? String(realOdds) : (i >= 0 ? SLIP[i].odds : '') };
-    if (i >= 0) SLIP[i] = leg; else SLIP.push(leg);
-    if (window.innerWidth >= 1150) {                     // on phones the slip covers the page: use the bar at the bottom
-      SLIP_OPEN = true;
-      // auto-close 5s after the most recent add, so it doesn't just sit open until manually dismissed;
-      // adding another leg within that window resets the countdown instead of closing mid-pick
-      clearTimeout(slipAutoCloseTimer);
-      slipAutoCloseTimer = setTimeout(() => { SLIP_OPEN = false; renderSlip(); }, 5000);
-    }
-  }
-  const added = inSlip(p, thr, side);
-  saveSlip(); renderSlip(); refreshChips(); refreshBoardAddButtons();
-  if (window.innerWidth < 1150) toast(`${added ? 'Added' : 'Removed'}: ${p.player} ${legText({ market: p.market, mlabel: p.label, thr, side })} · ${SLIP.length} leg${SLIP.length === 1 ? '' : 's'}`, false, 1800);
-}
-// re-style the alt-line buttons in place (selected / next-line-up / cleared-every-game) without rebuilding the page
-function refreshChips() {
-  document.querySelectorAll('#gameView .alt, #tbody .altrow .alt, #pvMain .alt').forEach(el => {
-    const p = board.props.find(x => x.id === el.dataset.id), t = +el.dataset.t;
-    if (!p) return;
-    const on = inSlip(p, t, 'over');
-    el.className = 'alt ' + (on ? 'on' : el.dataset.base);
-  });
-}
-// re-style the board's + and player-page's + button in place, same reason as refreshChips
-function refreshBoardAddButtons() {
-  document.querySelectorAll('#tbody .addbtn, #pvMain .addbtn, #insightsView .addbtn').forEach(el => {
-    const p = board.props.find(x => x.id === el.dataset.id);
-    if (!p) return;
-    const t = +el.dataset.t, side = el.dataset.side || 'over';
-    const on = inSlip(p, t, side);
-    el.classList.toggle('on', on);
-    el.textContent = on ? '✓' : '+';
-    el.title = on ? 'Remove from parlay slip' : `Add ${side === 'over' ? 'Over' : 'Under'} ${t} to your parlay`;
-  });
-}
 const toDec = o => { o = parseFloat(o); return isNaN(o) || Math.abs(o) < 100 ? null : o > 0 ? 1 + o / 100 : 1 + 100 / Math.abs(o); };
 const toAm = d => d >= 2 ? '+' + Math.round((d - 1) * 100) : String(Math.round(-100 / (d - 1)));
-// leg.odds is always stored as American internally -- this only affects what's shown/typed in the slip's odds box
-const legOddsDisplay = raw => {
-  if (raw === '' || raw == null) return '';
-  if (ODDS_FMT !== 'decimal') return raw;
-  const d = toDec(raw);
-  return d ? d.toFixed(2) : raw;
-};
-function legStats(l) {
-  const p = board && board.props.find(x => x.pid === l.pid && x.market === l.market && x.game === l.game);
-  if (!p) return null;
-  const side = l.side || 'over';
-  const v = p.log.map(x => x[3]);
-  // Over legs use >= ("40+" means 40 or more, matching the alt-line ladder). Under legs use < (matching the board's own Under filter).
-  const rt = k => { const a = v.slice(-k); return { hits: a.filter(x => side === 'under' ? x < l.thr : x >= l.thr).length, n: a.length }; };
-  return { l5: rt(5), l10: rt(10) };
-}
-// Real cross-player correlation for two parlay legs, using each leg's actual game history matched by
-// game_id (not just date/opponent, which can drift for a bye week or reschedule) -- not a model, just
-// counting how often both legs' own hit/miss lined up in games they both actually have a stat line for.
-function legCorrelation(legA, legB) {
-  const pA = board && board.props.find(x => x.pid === legA.pid && x.market === legA.market && x.game === legA.game);
-  const pB = board && board.props.find(x => x.pid === legB.pid && x.market === legB.market && x.game === legB.game);
-  if (!pA || !pB || pA.pid === pB.pid) return null;
-  const hit = (p, l, x) => (l.side === 'under' ? x[3] < l.thr : x[3] >= l.thr);
-  const byGame = p => Object.fromEntries(p.log.filter(x => x[8]).map(x => [x[8], x]));
-  const gA = byGame(pA), gB = byGame(pB);
-  const shared = Object.keys(gA).filter(id => gB[id]);
-  if (shared.length < 3) return null;
-  let bothHit = 0, aHits = 0, bHits = 0;
-  shared.forEach(id => {
-    const ha = hit(pA, legA, gA[id]), hb = hit(pB, legB, gB[id]);
-    if (ha) aHits++; if (hb) bHits++; if (ha && hb) bothHit++;
-  });
-  const n = shared.length, pctA = aHits / n, pctB = bHits / n, actual = bothHit / n, expected = pctA * pctB;
-  return { n, actual, expected, signal: actual - expected };
-}
-function correlationHtml() {
-  if (SLIP.length < 2) return '';
-  const rows = [];
-  for (let i = 0; i < SLIP.length; i++) for (let j = i + 1; j < SLIP.length; j++) {
-    const c = legCorrelation(SLIP[i], SLIP[j]);
-    if (c && Math.abs(c.signal) >= 0.15) rows.push({ a: SLIP[i], b: SLIP[j], ...c });
-  }
-  if (!rows.length) return '';
-  rows.sort((a, b) => Math.abs(b.signal) - Math.abs(a.signal));
-  return `<div class="corr">
-    <div class="muted small" style="margin-bottom:6px">Correlation insights <span title="Compares how often both legs actually hit together in games they both have a stat line for, vs. what you'd expect if they were unrelated. Small samples -- a signal, not a guarantee.">ⓘ</span></div>
-    ${rows.slice(0, 3).map(r => `<div class="corr-row ${r.signal > 0 ? 'g' : 'r'}">
-      <b>${esc(r.a.name)}</b> + <b>${esc(r.b.name)}</b> hit together in ${Math.round(r.actual * 100)}% of ${r.n} shared games
-      (expected ~${Math.round(r.expected * 100)}% if unrelated) ${r.signal > 0 ? '— tend to hit together' : '— tend to conflict'}.</div>`).join('')}
-  </div>`;
-}
-function emptySlipHtml() {
-  if (!board || !board.games.length) return '<div class="empty"><div class="ic">🎫</div><div class="msg">Your slip is empty</div><div class="sub">Open a game and tap an alt line to add it.</div></div>';
-  return `<div style="padding:16px"><b>Your parlay is empty.</b>
-    <div class="muted" style="margin:4px 0 14px">Pick a game, then tap the alt lines you want to add.</div>
-    ${board.games.map(g => `<button class="btn gopick" data-g="${esc(g.id)}">${esc(teamCode(g.away))} @ ${esc(teamCode(g.home))} <span class="muted">· ${fmtTime(g.date)}</span></button>`).join('')}</div>`;
-}
-function renderSlip() {
-  $('#slipN').textContent = SLIP.length;
-  document.body.classList.toggle('slip-open', SLIP_OPEN);
-  let est = 1, haveEst = false;
-  const legs = SLIP.map((l, i) => {
-    const st = legStats(l);
-    if (st && st.l10.n) { est *= st.l10.hits / st.l10.n; haveEst = true; }
-    return `<div class="leg"><div><b>${esc(l.name)}</b>
-        <div class="muted" style="font-size:12px">${esc(legText(l))} · ${l.home ? 'vs' : '@'} ${esc(l.opp)}</div>
-        <div class="lstat">${st ? `Cleared in L5 ${st.l5.hits}/${st.l5.n} · L10 ${st.l10.hits}/${st.l10.n}` : 'stats unavailable'}</div></div>
-      <input class="legodds" data-i="${i}" placeholder="${ODDS_FMT === 'decimal' ? 'decimal' : 'odds'}" value="${esc(legOddsDisplay(l.odds))}"
-        title="${ODDS_FMT === 'decimal' ? 'Optional decimal odds, like 1.91 or 3.50' : 'Optional American odds, like -110 or +250'}">
-      <button class="x" data-i="${i}" title="Remove">✕</button></div>`;
-  }).join('');
-  const bar = $('#slipBar');
-  bar.hidden = !SLIP.length || SLIP_OPEN;
-  document.body.classList.toggle('has-bar', !bar.hidden);
-  bar.innerHTML = `<span>Parlay · ${SLIP.length} leg${SLIP.length === 1 ? '' : 's'}${haveEst ? `<small>Rough chance all hit ${(est * 100).toFixed(est < 0.1 ? 1 : 0)}%</small>` : ''}</span><span class="go">View slip</span>`;
-  const decs = SLIP.map(l => toDec(l.odds)), allOdds = SLIP.length > 0 && decs.every(Boolean);
-  const dec = allOdds ? decs.reduce((a, b) => a * b, 1) : null;
-  $('#slip').innerHTML = `
-    <div class="slip-h"><b>Parlay slip · ${SLIP.length} leg${SLIP.length === 1 ? '' : 's'}</b>
-      <span>${SLIP.length ? '<button class="btn" id="slipClear">Clear</button> ' : ''}<button class="btn" id="slipClose">✕</button></span></div>
-    <div class="slip-legs">${legs || emptySlipHtml()}</div>
-    ${correlationHtml()}
-    ${SLIP.length ? `<div class="slip-f">
-      <div class="muted small">Rough chance every leg hits</div>
-      <div class="bignum">${haveEst ? (est * 100).toFixed(est < 0.1 ? 1 : 0) + '%' : '–'}</div>
-      <div class="note" style="margin:2px 0 10px">Multiplies each leg's last-10 hit rate as if the legs were independent. Legs from the same game are usually linked, so treat it as a rough guide, not a price.</div>
-      <div>Stake $ <input id="stake" type="number" min="1" step="1" value="${STAKE}"></div>
-      <div style="margin-top:8px">${allOdds ? `Parlay odds <b>${ODDS_FMT === 'decimal' ? dec.toFixed(2) : toAm(dec)}</b> · returns <b>$${(STAKE * dec).toFixed(2)}</b> <span class="muted">(profit $${(STAKE * (dec - 1)).toFixed(2)})</span>`
-        : '<span class="muted">Type each leg\'s odds from your sportsbook to see the payout.</span>'}</div>
-      <button class="btn primary slip-keep" id="slipKeep">Keep adding legs</button></div>` : ''}`;
-  document.querySelectorAll('#slip .x').forEach(b => b.onclick = () => { SLIP.splice(+b.dataset.i, 1); saveSlip(); renderSlip(); refreshChips(); });
-  document.querySelectorAll('#slip .legodds').forEach(inp => inp.onchange = () => {
-    const raw = inp.value.trim();
-    let odds = raw;
-    if (raw && ODDS_FMT === 'decimal') {
-      const d = parseFloat(raw);
-      if (!isNaN(d) && d > 1) odds = toAm(d);   // convert what they typed back to American for storage
-    }
-    SLIP[+inp.dataset.i].odds = odds;
-    saveSlip(); renderSlip();
-  });
-  if ($('#slipClear')) $('#slipClear').onclick = () => { clearTimeout(slipAutoCloseTimer); SLIP = []; saveSlip(); renderSlip(); refreshChips(); };
-  if ($('#stake')) $('#stake').onchange = e => { STAKE = Math.max(1, +e.target.value || 10); saveSlip(); renderSlip(); };
-  $('#slipClose').onclick = () => { clearTimeout(slipAutoCloseTimer); SLIP_OPEN = false; renderSlip(); };
-  document.querySelectorAll('#slip .gopick').forEach(b => b.onclick = () => { SLIP_OPEN = false; renderSlip(); location.hash = '#/g/' + b.dataset.g; });
-  if ($('#slipKeep')) $('#slipKeep').onclick = () => { clearTimeout(slipAutoCloseTimer); SLIP_OPEN = false; renderSlip(); };
-}
-$('#btnSlip').onclick = () => { clearTimeout(slipAutoCloseTimer); SLIP_OPEN = !SLIP_OPEN; renderSlip(); };
-$('#slipBar').onclick = () => { SLIP_OPEN = true; renderSlip(); };
 
 function filtersActiveCount() {
   let n = 0;
@@ -2693,7 +2439,6 @@ document.querySelectorAll('#oddsFmt button').forEach(b => b.onclick = () => {
   const p = pm && board.props.find(x => x.id === decodeURIComponent(pm[1]));
   const g = gm && board.games.find(x => x.id === decodeURIComponent(gm[1]));
   if (p) renderPlayer(p); else if (g) renderGame(g); else render();
-  renderSlip();
 });
 
 window.addEventListener('hashchange', route);
