@@ -470,7 +470,6 @@ window.onerror = function (msg, src, line) {
     <label id="tierOnlyWrap" hidden><input type="checkbox" id="tierOnly"> Tiered plays only</label>
     <button class="btn" id="btnFilters">Filters <b id="filtersCount">0</b></button>
     <button class="chip" id="clearGame" hidden>✕ Game filter</button>
-    <button class="chip" id="openParlay" hidden>🎟️ Alt lines &amp; parlay for this game →</button>
   </div>
 
   <div class="tablewrap"><table>
@@ -576,8 +575,7 @@ const SPORT_MARKETS = {
     ['dd','Double-Double'],['td','Triple-Double']],
   nhl: [['all','All props'],
     ['goals','Goals'],['assists','Assists'],['points','Points'],['sog','Shots on Goal'],
-    ['blocks','Blocked Shots'],['hits','Hits'],['pim','Penalty Minutes'],
-    ['minutes','Minutes on Ice'],['pp_toi','Powerplay Minutes on Ice'],['pp_goals','Powerplay Goals'],
+    ['blocks','Blocked Shots'],['hits','Hits'],['pp_goals','Powerplay Goals'],
     ['saves','Saves'],['goals_against','Goals Against']],
 };
 let MARKETS = SPORT_MARKETS[SPORT];
@@ -902,7 +900,7 @@ function filtered() {
 function render() {
   if (!board) return;
   renderHead();
-  $('#tierOnlyWrap').hidden = !activeQ1(); $('#clearGame').hidden = !F.game; $('#openParlay').hidden = !F.game;
+  $('#tierOnlyWrap').hidden = !activeQ1(); $('#clearGame').hidden = !F.game;
   document.querySelectorAll('#markets .pill').forEach(el => el.classList.toggle('on', el.dataset.k === 'all' ? F.markets.size === 0 : F.markets.has(el.dataset.k)));
   document.querySelectorAll('#games .game').forEach(el => el.classList.toggle('on', el.dataset.id === F.game));
   const rows = filtered(), CAP = 300, shown = rows.slice(0, CAP);
@@ -1281,8 +1279,9 @@ function tabbedStatCard(p, tabDefs, stateKey) {
   </div>`;
 }
 
-const NHL_SSTATS_TABS = [['minutes', 'Minutes on Ice'], ['pp_toi', 'Powerplay Minutes on Ice'],
-  ['sog', 'Shots on Goal'], ['pp_goals', 'Powerplay Goals']];
+// Minutes on Ice / Powerplay Minutes on Ice were dropped (2026-09-30, Simon's call) along with the
+// markets themselves -- not real sportsbook-bettable props, so they shouldn't be shown as if they were.
+const NHL_SSTATS_TABS = [['sog', 'Shots on Goal'], ['pp_goals', 'Powerplay Goals']];
 function nhlSupportingStatsHtml(p) {
   if (SPORT !== 'nhl' || p.pos === 'G') return '';
   return tabbedStatCard(p, NHL_SSTATS_TABS, 'nhlStat');
@@ -1623,7 +1622,6 @@ $('#minhit').oninput = e => { F.minhit = +e.target.value || 0; render(); if (FIL
 $('#hideout').onchange = e => { F.hideout = e.target.checked; render(); };
 $('#tierOnly').onchange = e => { F.tierOnly = e.target.checked; render(); };
 $('#clearGame').onclick = () => { F.game = ''; render(); if (FILTERS_OPEN) renderFilters(); };
-$('#openParlay').onclick = () => { location.hash = '#/g/' + F.game; };
 document.querySelectorAll('#side button').forEach(b => b.onclick = () => {
   setSide(b.dataset.v);
 });
@@ -1677,9 +1675,9 @@ const ALT = { rec_yds: { step: 10, min: 30 }, rush_yds: { step: 10, min: 30 }, r
   fg3a: { step: 1, min: 3 }, fgm: { step: 1, min: 4 }, fga: { step: 2, min: 6 }, ftm: { step: 1, min: 2 },
   oreb: { list: [1, 2, 3, 4, 5] }, dreb: { step: 1, min: 3 }, dd: { list: [1] }, td: { list: [1] },
   goals: { list: [1, 2, 3] }, points: { step: 1, min: 1 }, sog: { step: 1, min: 2 },
-  blocks: { list: [1, 2, 3, 4] }, hits: { step: 1, min: 2 }, pim: { list: [2, 4, 6] },
+  blocks: { list: [1, 2, 3, 4] }, hits: { step: 1, min: 2 },
   saves: { step: 2, min: 20 }, goals_against: { list: [1, 2, 3, 4] },
-  minutes: { step: 2, min: 10 }, pp_toi: { step: 1, min: 1 }, pp_goals: { list: [1, 2, 3] } };
+  pp_goals: { list: [1, 2, 3] } };
 function ladder(market, vals) {
   const a = ALT[market], mx = Math.max(...vals, 0), out = [];
   if (a.list) return a.list.filter(t => t <= mx);
@@ -1892,11 +1890,10 @@ function renderCompare(id1, id2) {
 // long "streak" there isn't the meaningful signal it looks like -- it's just an easy line.
 const TRIVIAL_STREAK_MARKETS = new Set(['any_td', 'q1_any_td', 'long_pass', 'long_rush', 'long_rec',
   'q1_rec', 'q1_rush', 'q1_pass_yds', 'q1_rush_yds', 'q1_rec_yds',
-  // Same trap as any_td: most NHL skaters never see the power play, so these sit at (or near) 0
+  // Same trap as any_td: most NHL skaters never see the power play, so this sits at (or near) 0
   // every game regardless of opponent -- a "stayed under 0.5" streak there is a roster-role fact
-  // (he's not on the PP unit), not a real matchup read. Minutes on Ice stays included -- that one's
-  // a real, continuous, meaningfully-varying stat, not a near-universal floor/ceiling value.
-  'pp_toi', 'pp_goals']);
+  // (he's not on the PP unit), not a real matchup read.
+  'pp_goals']);
 function playerStreaks() {
   const out = [];
   // NCAAF's box scores only go back HIST_WEEKS=6 (see cfb.py) -- nflverse/NBA/NHL carry 30+ games of
