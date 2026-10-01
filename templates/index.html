@@ -1362,6 +1362,7 @@ function renderPlayer(p) {
         <div class="stat"><div class="k">Hit rate · ${esc(cur[1])}</div><div class="v ${pcls(R[cur[0]])}">${R[cur[0]].n ? Math.round(R[cur[0]].pct) + '% ' : '–'}<small>${R[cur[0]].n ? R[cur[0]].hits + '/' + R[cur[0]].n : ''}</small></div></div>
         <div class="stat"><div class="k">Matchup rank</div><div class="v ${rkc}">${rk ? ord(rk) : '–'} <small>vs ${esc(p.pos)}</small></div></div>
         ${p.zone_edge != null ? `<div class="stat"><div class="k">Zone Edge</div><div class="v" title="% of his targets land in zones where ${esc(p.opp)} is weak">${Math.round(p.zone_edge)}%</div></div>` : ''}
+        ${p.pos === 'QB' && p.cpoe != null ? `<div class="stat"><div class="k">CPOE</div><div class="v ${p.cpoe >= 2 ? 'g' : p.cpoe <= -2 ? 'r' : ''}" title="Completion % over expected, last 5 games — strips out scheme/separation noise raw completion % can't">${p.cpoe >= 0 ? '+' : ''}${p.cpoe}%</div></div>` : ''}
         ${signalsAligned(p, { r: { l10: R.l10 } }) ? `<div class="stat"><div class="k">&nbsp;</div><div class="v"><span class="signal" title="Zone Edge ${Math.round(p.zone_edge)}%, L10 hit rate ${Math.round(R.l10.pct)}%${p.ev_over != null ? `, +${p.ev_over.toFixed(0)}% EV` : ''} -- multiple signals agree, not a guarantee">Signals aligned</span></div></div>` : ''}
         <div class="stat"><div class="k">Opponent</div><div class="v">${p.home ? 'vs' : '@'} ${esc(p.opp)} <small>${g ? fmtTime(g.date) : ''}</small></div></div>
       </div>
@@ -1403,6 +1404,19 @@ function renderPlayer(p) {
       return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
         <b>Workload split</b> <span class="muted" style="font-size:12px">— avg touches (carries+targets) per game, last 6 games, among ${esc(p.team)}'s ${posName}.</span>
         <div style="margin-top:10px">${usage.map(([name, val]) => {
+          const mine = name === p.player;
+          return `<div class="wlrow"><div class="wlname ${mine ? 'on' : ''}">${esc(name)}</div>
+            <div class="wltrack"><div class="wlfill ${mine ? 'on' : ''}" style="width:${max ? Math.round(val / max * 100) : 0}%"></div></div>
+            <div class="wlval">${fmtNum(val)}</div></div>`;
+        }).join('')}</div></div>`;
+    })()}
+    ${(() => {
+      const rz = board.redzone_usage && board.redzone_usage[`${p.team}|${p.pos}`];
+      if (!rz || rz.length < 2) return '';
+      const max = Math.max(...rz.map(u => u[1]));
+      return `<div class="chartcard" style="margin-top:14px;padding-bottom:14px">
+        <b>Red Zone Share</b> <span class="muted" style="font-size:12px">— avg red-zone touches/targets per game, last 6 games, among ${esc(p.team)}'s ${posName}. TD-prop volatility comes mostly from goal-line role, not overall volume.</span>
+        <div style="margin-top:10px">${rz.map(([name, val]) => {
           const mine = name === p.player;
           return `<div class="wlrow"><div class="wlname ${mine ? 'on' : ''}">${esc(name)}</div>
             <div class="wltrack"><div class="wlfill ${mine ? 'on' : ''}" style="width:${max ? Math.round(val / max * 100) : 0}%"></div></div>
@@ -1482,8 +1496,13 @@ function renderPlayer(p) {
           ${mline(`${esc(p.opp)} allows / game to ${posName}`, fmtNum(t[1]))}
           ${mline('League average', fmtNum(dv.league))}
           ${mline('vs league', (pctDiff >= 0 ? '+' : '') + pctDiff.toFixed(0) + '%', pctDiff >= 0 ? (side === 'over' ? 'g' : 'r') : (side === 'over' ? 'r' : 'g'))}` : '<div class="muted">No defense data.</div>'}
+        ${p.eff_rank != null ? (() => {
+          const egr = gradeOf(p.eff_rank, side);
+          return mline(`Efficiency vs ${posName}`, `${ord(p.eff_rank)} · ${p.eff_epa >= 0 ? '+' : ''}${p.eff_epa.toFixed(2)} EPA/play, ${p.eff_success}% success`, egr ? egr.cls : '');
+        })() : ''}
         ${implied != null ? mline(`${esc(p.team)} implied team total`, implied.toFixed(1)) : ''}
         ${g ? mline('Game line', `${esc(g.spread || '–')}${total ? ' · O/U ' + total : ''}`) : ''}
+        ${p.team_proe != null ? mline(`${esc(p.team)} recent pass rate`, `${p.team_proe >= 0 ? '+' : ''}${p.team_proe}% vs expected`) : ''}
         ${g && g.weather ? mline('Weather at kickoff', `${g.weather.temp}°F, ${g.weather.wind}mph wind${g.weather.precip >= 20 ? `, ${g.weather.precip}% rain` : ''}`, g.weather.wind >= 15 || g.weather.precip >= 30 ? 'r' : '') : ''}
         ${p.opp_rest ? mline(`${esc(p.opp)} rest`, `${p.opp_rest.label} (${p.opp_rest.days}d)`, p.opp_rest.days <= 4 || p.opp_rest.days >= 10 ? 'r' : '') : ''}
         ${mline(`${esc(p.player.split(' ').slice(-1)[0])} vs ${esc(p.opp)}`, h2h.length ? `${fmtNum(Math.round(avgOf(h2h.map(x => x[3])) * 10) / 10)} avg (${h2h.length} g)` : 'no games')}

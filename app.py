@@ -129,23 +129,86 @@ def _zone_of(air_yards):
 def _build_q1_tables():
     """Reduce big play-by-play files to small per-game/per-player tables (cached, big file deleted):
     first-quarter yards/TDs (Q1 markets), longest-play (a game's single best pass/rush/catch, any
-    quarter), and target/catch counts by field zone (depth bucket x left/middle/right — the receiving
-    zone chart on a player's page)."""
+    quarter), target/catch counts by field zone (depth bucket x left/middle/right — the receiving
+    zone chart on a player's page), full-game EPA/success-rate allowed by position (efficiency
+    matchup grades), red-zone touch/target share (opportunity-quality for TD-dependent props), QB
+    CPOE (completion % over expected), and team-level PROE (pass rate over expected)."""
     for yr, age in ((SEASON - 1, 24 * 30), (SEASON, 3)):
         small, small_def = DATA / f"q1_{yr}.parquet", DATA / f"q1def_{yr}.parquet"
         zones, zones_def = DATA / f"zones_{yr}.parquet", DATA / f"zonesdef_{yr}.parquet"
+        epa_def = DATA / f"epa_def_{yr}.parquet"
+        rz = DATA / f"rz_{yr}.parquet"
+        qb_eff = DATA / f"qb_eff_{yr}.parquet"
+        proe = DATA / f"proe_{yr}.parquet"
         fresh = all(f.exists() and time.time() - f.stat().st_mtime < age * 3600
-                    for f in (small, small_def, zones, zones_def))
+                    for f in (small, small_def, zones, zones_def, epa_def, rz, qb_eff, proe))
         if fresh:
             continue
         big = DATA / f"pbp_{yr}.parquet"
         if not download(f"{NFLVERSE}/pbp/play_by_play_{yr}.parquet", big, 0):
             continue
         p = pd.read_parquet(big, columns=[
-            "game_id", "qtr", "play_type", "epa", "defteam",
+            "game_id", "qtr", "play_type", "epa", "success", "defteam", "posteam",
             "receiver_player_id", "receiving_yards", "rusher_player_id", "rushing_yards",
             "passer_player_id", "passing_yards", "pass_touchdown", "rush_touchdown", "td_player_id",
-            "pass_location", "air_yards", "complete_pass", "pass_attempt"])
+            "pass_location", "air_yards", "complete_pass", "pass_attempt", "rush_attempt",
+            "cpoe", "yardline_100", "pass_oe"])
+
+        # Position lookup for mapping a pbp play's receiver/rusher to WR/RB/TE/QB -- the weekly stats
+        # file (already downloaded by load_stats() before this runs, in the same call chain via
+        # load_q1()) already has a real position per player, so no separate roster fetch is needed.
+        pw_file = DATA / f"pw{yr}.parquet"
+        pos_map = {}
+        if pw_file.exists():
+            pw = pd.read_parquet(pw_file, columns=["player_id", "position"])
+            pos_map = dict(zip(pw.player_id, pw.position))
+
+        # Full-game (not just Q1) EPA + success rate allowed per defense, split by which position was
+        # targeted/carrying and whether it was a pass or run -- a real efficiency read, unlike the
+        # existing DvP rank which is raw yards allowed (a defense can "allow a lot" just by facing a
+        # fast, high-volume offense without actually being bad per play). Added alongside the existing
+        # volume-based grade, not replacing it -- both are real, complementary signals.
+        eff = p[p.epa.notna() & p.defteam.notna()].copy()
+        eff["recv_pos"] = eff.receiver_player_id.map(pos_map)
+        eff["rush_pos"] = eff.rusher_player_id.map(pos_map)
+        pass_eff = eff[(eff.play_type == "pass") & eff.recv_pos.notna()].rename(columns={"recv_pos": "position"})
+        pass_eff["kind"] = "pass"
+        rush_eff = eff[(eff.play_type == "run") & eff.rush_pos.notna()].rename(columns={"rush_pos": "position"})
+        rush_eff["kind"] = "rush"
+        both = pd.concat([pass_eff[["defteam", "position", "kind", "epa", "success"]],
+                           rush_eff[["defteam", "position", "kind", "epa", "success"]]], ignore_index=True)
+        (both.groupby(["defteam", "position", "kind"])
+         .agg(epa_sum=("epa", "sum"), epa_n=("epa", "count"), success_sum=("success", "sum"))
+         .reset_index().to_parquet(epa_def))
+
+        # Red-zone (inside the 20) touches/targets per player per game -- TD-prop volatility comes
+        # mostly from goal-line ROLE, not overall volume, which the site's existing markets can't
+        # distinguish today (a backup who vultures 2 red-zone carries a game looks identical to a
+        # featured back in a raw "carries" column).
+        rzp = p[p.yardline_100 <= 20]
+        rz_rush = (rzp[rzp.rush_attempt == 1].dropna(subset=["rusher_player_id"])
+                   .groupby(["game_id", "rusher_player_id"]).size().rename("rz_rush").rename_axis(["game_id", "player_id"]))
+        rz_tgt = (rzp[rzp.pass_attempt == 1].dropna(subset=["receiver_player_id"])
+                  .groupby(["game_id", "receiver_player_id"]).size().rename("rz_tgt").rename_axis(["game_id", "player_id"]))
+        pd.concat([rz_rush, rz_tgt], axis=1).reset_index().to_parquet(rz)
+
+        # QB CPOE (completion % over expected) -- a volatility-adjusted accuracy read that strips out
+        # scheme/receiver-separation noise raw completion % can't, using nflverse's own real per-play
+        # expectation model rather than anything built here.
+        qb = (p[p.passer_player_id.notna() & p.cpoe.notna()]
+              .groupby(["game_id", "passer_player_id"]).cpoe.mean()
+              .rename("cpoe").reset_index().rename(columns={"passer_player_id": "player_id"}))
+        qb.to_parquet(qb_eff)
+
+        # Team-level PROE (pass rate over expected) -- nflverse's own `pass_oe` is already the
+        # play-level contribution (actual pass/no-pass minus that play's real expected-pass
+        # probability from their own model), so team PROE is just its mean, no modeling needed here.
+        # Context only, not a volume-projection formula (that style of approach was tried twice before
+        # on this site and didn't beat a plain recent average in backtesting -- see PROE frontend note).
+        proe_df = (p[p.posteam.notna() & p.pass_oe.notna()]
+                   .groupby(["game_id", "posteam"]).pass_oe.mean()
+                   .rename("proe").reset_index())
+        proe_df.to_parquet(proe)
 
         # longest single play this game, any quarter (a sack/no-gain doesn't count as anyone's "longest")
         long_rec = (p[p.receiving_yards > 0].groupby(["game_id", "receiver_player_id"]).receiving_yards.max()
@@ -200,6 +263,77 @@ def load_q1():
     cols = ["game_id", "player_id", "q1_rec", "q1_rush", "q1_pass", "q1_any_td",
             "long_rec", "long_rush", "long_pass"]
     return q1 if q1 is not None else pd.DataFrame(columns=cols)
+
+
+EFF_KIND = {   # market -> ('pass'/'rush', the position-group the EPA data was split by) for the
+    # efficiency-matchup lookup -- a market not listed here just doesn't get an efficiency grade (v1
+    # covers the core volume markets; QB passing markets aren't position-specific the same way a
+    # defense's pass-vs-WR/RB/TE efficiency is, so left out rather than mapped to something misleading)
+    "rec": "pass", "rec_yds": "pass", "targets_m": "pass", "long_rec": "pass",
+    "rush_yds": "rush", "rush_att": "rush", "long_rush": "rush", "rush_rec_yds": "pass",
+    "q1_rec": "pass", "q1_rec_yds": "pass", "q1_rush": "rush", "q1_rush_yds": "rush",
+}
+
+
+def load_efficiency():
+    """EPA/play + success rate allowed per defense, by position and pass/rush -- a real efficiency
+    read (does this defense actually play well, not just face a lot of plays), complementing the
+    existing DvP volume rank rather than replacing it. Shaped exactly like `dvp` ({league, n, teams:
+    {team: [rank, epa_play, success_rate]}}), keyed "{pos}|{kind}", so the frontend can reuse the same
+    gradeOf()-style rank lookup pattern it already has for the volume-based grade. Blends last +
+    current season like the rest of the site's matchup data, dropped below a real sample-size floor."""
+    _build_q1_tables()
+    e = _read_all("epa_def")
+    if e is None:
+        return {}
+    g = (e.groupby(["defteam", "position", "kind"])
+         .agg(epa_sum=("epa_sum", "sum"), epa_n=("epa_n", "sum"), success_sum=("success_sum", "sum"))
+         .reset_index())
+    g = g[g.epa_n >= 15]
+    g["epa_play"] = g.epa_sum / g.epa_n
+    g["success_rate"] = g.success_sum / g.epa_n * 100
+    out = {}
+    for (pos, kind), grp in g.groupby(["position", "kind"]):
+        if len(grp) < 10:   # too few teams with a real sample this early in a season
+            continue
+        # Rank 1 = allows the MOST EPA/play = weakest defense, matching the site's existing "1st =
+        # allows the most" convention for the volume-based DvP rank elsewhere.
+        rk = grp.epa_play.rank(ascending=False, method="min").astype(int)
+        out[f"{pos}|{kind}"] = {
+            "league_epa": round(float(grp.epa_play.mean()), 3),
+            "league_success": round(float(grp.success_rate.mean()), 1),
+            "n": len(grp),
+            "teams": {row.defteam: [int(rk[row.Index]), round(float(row.epa_play), 3), round(float(row.success_rate), 1)]
+                      for row in grp.itertuples()},
+        }
+    return out
+
+
+def load_redzone():
+    """Red-zone (inside the 20) touches/targets per player per game -- see _build_q1_tables()."""
+    _build_q1_tables()
+    rz = _read_all("rz")
+    cols = ["game_id", "player_id", "rz_rush", "rz_tgt"]
+    return rz if rz is not None else pd.DataFrame(columns=cols)
+
+
+def load_qb_efficiency():
+    """CPOE (completion % over expected) per QB per game -- see _build_q1_tables()."""
+    _build_q1_tables()
+    qb = _read_all("qb_eff")
+    cols = ["game_id", "player_id", "cpoe"]
+    return qb if qb is not None else pd.DataFrame(columns=cols)
+
+
+def load_proe():
+    """Team-level PROE (pass rate over expected) per game -- see _build_q1_tables(). Descriptive
+    context only (shown alongside the game's own spread/total), never used to scale or override a
+    line estimate -- that style of volume-projection approach was tried twice before on this site and
+    didn't beat a plain recent average in backtesting."""
+    _build_q1_tables()
+    proe = _read_all("proe")
+    cols = ["game_id", "posteam", "proe"]
+    return proe if proe is not None else pd.DataFrame(columns=cols)
 
 
 def load_zones():
@@ -924,6 +1058,27 @@ def usage_shares(cur, latest, games):
     return out
 
 
+def redzone_shares(cur, latest, games, rz):
+    """Recent red-zone touch share (rushes + targets inside the 20, last 6 games) among a team's
+    RBs/WRs/TEs -- TD-prop volatility comes mostly from goal-line ROLE, not overall volume, which the
+    existing Workload split card (built from all touches) can't distinguish: a backup who vultures 2
+    red-zone carries a game looks identical there to a featured back getting 15 touches at midfield."""
+    teams_in_play = {ESPN_TO_NFLVERSE.get(t, t) for g in games for t in (g["home"], g["away"])}
+    cur2 = cur.merge(rz, on=["game_id", "player_id"], how="left")
+    cur2["rz_touch"] = cur2.rz_rush.fillna(0) + cur2.rz_tgt.fillna(0)
+    recent_rz = cur2.sort_values("week").groupby("player_id").rz_touch.apply(lambda s: s.tail(6).mean())
+    pool = latest[latest.position.isin(["RB", "WR", "TE"]) & latest.team.isin(teams_in_play)]
+    out = {}
+    for (team, pos), grp in pool.groupby(["team", "position"]):
+        vals = [(p.player_display_name, round(float(recent_rz.get(pid, 0)), 1))
+                for pid, p in grp.iterrows() if recent_rz.get(pid, 0) > 0]
+        if len(vals) < 2:
+            continue
+        vals.sort(key=lambda x: -x[1])
+        out[f"{team}|{pos}"] = vals
+    return out
+
+
 def _favorable_pct(zp, zd):
     """% of a player's own targets that land in zones where a given defense ranks in the weak third
     (rank <= 10 of 32) — the one number both zone_fit() and zone_edge() below are built from."""
@@ -1298,6 +1453,15 @@ def build_board():
     zf = zone_fit(games, latest, zones_player, zones_def)
     timelines = load_season_timelines(df, inj, games, latest)
 
+    efficiency = load_efficiency()
+    redzone = redzone_shares(cur, latest, games, load_redzone())
+    qb_eff = load_qb_efficiency()
+    recent_cpoe = (cur.merge(qb_eff, on=["game_id", "player_id"], how="left")
+                   .sort_values("week").groupby("player_id").cpoe
+                   .apply(lambda s: s.dropna().tail(5).mean()))
+    proe_df = load_proe()
+    recent_proe = proe_df.sort_values("game_id").groupby("posteam").proe.apply(lambda s: s.tail(5).mean())
+
     rows = []
     for g in games:
         for team, opp, home in ((g["home"], g["away"], 1), (g["away"], g["home"], 0)):
@@ -1326,6 +1490,11 @@ def build_board():
                     inj_status = status.get((pid, g["week"]))
                     if g["week"] > inj_week:
                         inj_status = None
+                    eff_kind = EFF_KIND.get(mkey)
+                    eff_entry = efficiency.get(f"{pos}|{eff_kind}") if eff_kind else None
+                    eff_team = eff_entry["teams"].get(o) if eff_entry else None
+                    cpoe = recent_cpoe.get(pid)
+                    proe = recent_proe.get(t)
                     row = {
                         "id": f"{pid}|{mkey}|{g['id']}", "pid": pid, "player": p.player_display_name,
                         "pos": pos, "team": t, "opp": o, "home": home, "game": g["id"],
@@ -1341,6 +1510,20 @@ def build_board():
                         "opp_rest": rest.get((o, g["id"])),
                         "timeline": timelines.get(pid),
                         "line_history": line_hist.get(f"{norm_name(p.player_display_name)}|{mkey}|{g['id']}"),
+                        # Real efficiency-based matchup read (EPA/play + success rate allowed), alongside
+                        # the existing volume-based opp_rank rather than replacing it -- a defense can
+                        # "allow a lot" just by facing a lot of plays without actually playing worse.
+                        "eff_rank": eff_team[0] if eff_team else None,
+                        "eff_epa": eff_team[1] if eff_team else None,
+                        "eff_success": eff_team[2] if eff_team else None,
+                        # QB accuracy stripped of scheme/separation noise, and this player's own team's
+                        # recent pass-rate-over-expected -- both descriptive context, not used to alter
+                        # the line estimate above.
+                        "cpoe": round(float(cpoe), 1) if pd.notna(cpoe) else None,
+                        # pass_oe is already a per-play percentage-point value (confirmed against real
+                        # data: xpass=0.45 + an actual pass gives pass_oe=+54.7, i.e. (1-xpass)*100),
+                        # not a 0-1 fraction -- averaging it directly already yields a real PROE percent.
+                        "team_proe": round(float(proe), 1) if pd.notna(proe) else None,
                     }
                     books = odds["lines"].get(f"{norm_name(p.player_display_name)}|{mkey}")
                     if books:
@@ -1375,6 +1558,7 @@ def build_board():
         "season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
         "recent_players": recent_players, "usage": usage, "team_streaks": team_streaks,
         "roster_activity": roster_act, "zones_player": zones_player, "zones_def": zones_def, "zone_fit": zf,
+        "efficiency": efficiency, "redzone_usage": redzone,
         "has_key": bool(load_config().get("odds_key")),
         "odds_pulled": odds["pulled"], "odds_remaining": odds["remaining"],
         "has_sgo_key": bool(load_sgo_key()), "sgo_pulled": sgo["pulled"],
