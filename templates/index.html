@@ -1891,7 +1891,12 @@ function renderCompare(id1, id2) {
 // by definition (a single Q1 target, a single long catch, one score out of many red-zone looks), so a
 // long "streak" there isn't the meaningful signal it looks like -- it's just an easy line.
 const TRIVIAL_STREAK_MARKETS = new Set(['any_td', 'q1_any_td', 'long_pass', 'long_rush', 'long_rec',
-  'q1_rec', 'q1_rush', 'q1_pass_yds', 'q1_rush_yds', 'q1_rec_yds']);
+  'q1_rec', 'q1_rush', 'q1_pass_yds', 'q1_rush_yds', 'q1_rec_yds',
+  // Same trap as any_td: most NHL skaters never see the power play, so these sit at (or near) 0
+  // every game regardless of opponent -- a "stayed under 0.5" streak there is a roster-role fact
+  // (he's not on the PP unit), not a real matchup read. Minutes on Ice stays included -- that one's
+  // a real, continuous, meaningfully-varying stat, not a near-universal floor/ceiling value.
+  'pp_toi', 'pp_goals']);
 function playerStreaks() {
   const out = [];
   // NCAAF's box scores only go back HIST_WEEKS=6 (see cfb.py) -- nflverse/NBA/NHL carry 30+ games of
