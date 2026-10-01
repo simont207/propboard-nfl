@@ -1881,6 +1881,13 @@ function topPropsForGame(gameId, limit = 3) {
       if (l10.n >= 5 && l10.pct >= 75) { side = 'over'; score = l10.pct; tag = `${Math.round(l10.pct)}% L10`; }
     }
     if (side == null) return;
+    // Guard against a prop whose EV math disagrees with its own real recent results (seen live: a
+    // market's EV said +80% on a side that actually hit 1 of its last 10 games) -- never surface a
+    // "top" prop that contradicts the hit rate shown right next to it.
+    if (tag.includes('EV')) {
+      const l10check = rate(p.log.slice(-10).map(x => x[3]), line, side);
+      if (l10check.n >= 5 && l10check.pct < 25) return;
+    }
     const existing = byPlayer.get(p.pid);
     if (!existing || score > existing.score) byPlayer.set(p.pid, { p, side, score, tag, line });
   });

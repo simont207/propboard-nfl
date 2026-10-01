@@ -1681,7 +1681,14 @@ def build_board():
                         # EV only where the book's own line is close enough to the fair line that comparing
                         # their odds head-to-head is a fair apples-to-apples read (a TD_MARKETS prop has no
                         # numeric line at all, so it's always comparable). A big gap means different props.
-                        comparable = mkey in TD_MARKETS or (sg["fair_line"] is not None and abs(line - sg["fair_line"]) <= 1.0)
+                        # A flat 1.0 absolute gap isn't tight enough for low-count markets (pass TDs, sacks,
+                        # FGs made): a 0.5-1.0 gap there is most of the market's whole scale, not noise, so
+                        # also require the gap to be a modest fraction of the fair line's own size.
+                        fair_line = sg["fair_line"]
+                        gap = abs(line - fair_line) if fair_line is not None else None
+                        comparable = mkey in TD_MARKETS or (
+                            gap is not None and gap <= 1.0 and gap <= max(abs(fair_line), 1.0) / 3
+                        )
                         if comparable:
                             row["ev_over"] = ev_pct(sg["over"], sg["fair_over"])
                             row["ev_under"] = ev_pct(sg["under"], sg["fair_under"])
