@@ -1930,6 +1930,17 @@ function opponentBucketStreaks() {
     if (!dv) return;
     const rn = dv.n || 32;
     const line = lineFor(p);
+    // A player whose OWN overall rate (every game he's played, any opponent) is already ~always
+    // one-sided isn't showing a real matchup effect in any bucket -- that's just a constant habit
+    // (e.g. a WR who's thrown 1 rush attempt in 19 games stays "under" no matter who he's facing).
+    // Caught live: Jerry Jeudy's rush_att showed a "100% under vs elite run defenses" matchup card
+    // that was really just his baseline 95%-under-every-game rate, not an opponent-driven read. 90%
+    // (looser than the 80% bucket bar below) only screens out near-total constants, not players who
+    // are just genuinely strong/weak overall but still have real variance in their own game log.
+    const baseline = p.log.length >= 5 ? {
+      over: p.log.filter(x => x[3] > line).length / p.log.length,
+      under: p.log.filter(x => x[3] < line).length / p.log.length,
+    } : null;
     const weak = [], elite = [];
     p.log.forEach(x => {
       const t = dv.teams[x[2]];
@@ -1942,6 +1953,7 @@ function opponentBucketStreaks() {
       const recent = games.slice(-10), n = recent.length;
       if (n < 5) return;
       ['over', 'under'].forEach(side => {
+        if (baseline && baseline[side] >= 0.9) return;
         const hits = recent.filter(g => g[side]).length;
         if (hits / n < 0.8) return;
         out.push({ p, line, side, kind, tierLabel, hits, n, pct: hits / n, games: recent });
