@@ -1,4 +1,4 @@
-"""NCAAF (FBS) data pipeline for PropBoard.
+"""NCAAF (FBS) data pipeline for PropBoards.
 
 Unlike the NFL side (which uses nflverse's clean pre-aggregated weekly-stats file), the closest
 free CFB equivalent (cfbfastR-data's "player_stats" file) turned out to be a raw, one-stat-per-row

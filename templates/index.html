@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>PropBoard NFL</title>
+<title>PropBoards NFL</title>
 <style>
   :root {
     --bg: #0c0f0e; --panel: #141917; --panel2: #1a211e; --line: #263029;
@@ -383,7 +383,7 @@ window.onerror = function (msg, src, line) {
 };
 </script>
 <header>
-  <div><a class="logo" id="logoHome" href="#/" title="Back to the home screen">Prop<b>Board</b> <span id="sportName">NFL</span></a><div class="muted small" id="sub">Loading…</div></div>
+  <div><a class="logo" id="logoHome" href="#/" title="Back to the home screen">Prop<b>Boards</b> <span id="sportName">NFL</span></a><div class="muted small" id="sub">Loading…</div></div>
   <div class="seg" id="sportSwitch"><button data-s="nfl" class="on">NFL</button><button data-s="ncaaf">NCAAF</button><button data-s="nba">NBA</button><button data-s="nhl">NHL</button></div>
   <div class="search">
     <input type="text" id="gsearch" placeholder="Search players, teams, props   ( / )" autocomplete="off" disabled>
@@ -450,7 +450,7 @@ window.onerror = function (msg, src, line) {
     <p><b>Zone Edge</b> (NFL receiving props only) — the % of a player's own targets that land in areas of the field where this week's specific opponent has allowed the highest catch rate.</p>
     <p>All of these describe recent results, not predictions — see the note below.</p>
   </details>
-  <p>PropBoard is an independent stats tool. It is not affiliated with, endorsed by, or sponsored by the NFL, any team, ESPN, or any sportsbook.
+  <p>PropBoards is an independent stats tool. It is not affiliated with, endorsed by, or sponsored by the NFL, any team, ESPN, or any sportsbook.
     Team names, logos and player photos belong to their owners and are shown only to identify teams and players.</p>
   <p>Hit rates, matchup ranks and tiers describe past results. They are not predictions, guarantees or betting advice. Bet only what you can afford to lose.
     Must be 21+ (18+ in some places). Problem gambling? Call 1-800-GAMBLER.</p>
@@ -496,7 +496,7 @@ const PUBLIC = {{ 'true' if public else 'false' }};
 if (PUBLIC) document.body.classList.add('public');
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-// PropBoard covers two sports off one shared UI. Everything below reads board.props/board.games
+// PropBoards covers two sports off one shared UI. Everything below reads board.props/board.games
 // generically (no NFL-specific field names), so the same table/player-page/game-page code
 // works for both — only the market list, header title and cache keys are sport-specific.
 let SPORT = 'nfl';
@@ -2419,7 +2419,7 @@ document.addEventListener('keydown', e => {
   if (e.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); gs.focus(); }
 });
 
-// clicking the PropBoard NFL title goes back to the home screen (the board, with filters cleared, scrolled to the top)
+// clicking the PropBoards NFL title goes back to the home screen (the board, with filters cleared, scrolled to the top)
 function goHome() {
   Object.assign(F, { game: '', team: '', pos: '', q: '', tierOnly: false });
   $('#team').value = ''; $('#pos').value = ''; $('#q').value = ''; $('#tierOnly').checked = false;

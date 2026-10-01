@@ -1,4 +1,4 @@
-"""Build the public, static copy of PropBoard into ./docs.
+"""Build the public, static copy of PropBoards into ./docs.
 
     python build_static.py
 
@@ -24,11 +24,11 @@ if takedown and datetime.datetime.now(datetime.timezone.utc) >= datetime.datetim
     (out / "board.json").unlink(missing_ok=True)
     (out / "index.html").write_text("""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
-<title>PropBoard NFL - offline</title>
+<title>PropBoards NFL - offline</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0c0f0e;color:#e8efeb;
 font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;text-align:center;padding:24px}
 b{color:#4ade80}p{color:#8b9a91;max-width:420px}</style></head>
-<body><div><h1>Prop<b>Board</b> NFL</h1><p>This site is offline for now. Thanks for stopping by.</p></div></body></html>""")
+<body><div><h1>Prop<b>Boards</b> NFL</h1><p>This site is offline for now. Thanks for stopping by.</p></div></body></html>""")
     (out / ".nojekyll").write_text("")
     print(f"TAKEDOWN_AT {takedown} has passed: published the offline page.")
     sys.exit(0)

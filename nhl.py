@@ -1,4 +1,4 @@
-"""NHL data pipeline for PropBoard.
+"""NHL data pipeline for PropBoards.
 
 Same approach as nba.py/cfb.py: ESPN's public box-score endpoints, one request per game, completed
 games cached to disk forever. Unlike NBA, the 2026-27 season has already started preseason play

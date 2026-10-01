@@ -1,4 +1,4 @@
-# PropBoard NFL
+# PropBoards NFL
 
 A props.cash-style NFL player prop finder that runs on your Mac.
 

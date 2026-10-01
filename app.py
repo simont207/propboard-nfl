@@ -1,4 +1,4 @@
-"""PropBoard NFL - a props.cash-style player prop finder.
+"""PropBoards NFL - a props.cash-style player prop finder.
 
 Free data: nflverse weekly player stats + injuries, ESPN schedule/game lines.
 Optional: The Odds API key (paste it in the page) for real sportsbook prop lines.
@@ -1505,5 +1505,5 @@ def api_pull_sgo():
 
 
 if __name__ == "__main__":
-    print("PropBoard NFL running at http://127.0.0.1:5051")
+    print("PropBoards NFL running at http://127.0.0.1:5051")
     app.run(host="127.0.0.1", port=5051, debug=False)
