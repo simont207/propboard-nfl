@@ -140,8 +140,13 @@ def _build_q1_tables():
         rz = DATA / f"rz_{yr}.parquet"
         qb_eff = DATA / f"qb_eff_{yr}.parquet"
         proe = DATA / f"proe_{yr}.parquet"
+        pace = DATA / f"pace_{yr}.parquet"
+        sitpass = DATA / f"sitpass_{yr}.parquet"
+        pressure = DATA / f"pressure_{yr}.parquet"
+        pressure_qb = DATA / f"pressure_qb_{yr}.parquet"
         fresh = all(f.exists() and time.time() - f.stat().st_mtime < age * 3600
-                    for f in (small, small_def, zones, zones_def, epa_def, rz, qb_eff, proe))
+                    for f in (small, small_def, zones, zones_def, epa_def, rz, qb_eff, proe,
+                              pace, sitpass, pressure, pressure_qb))
         if fresh:
             continue
         big = DATA / f"pbp_{yr}.parquet"
@@ -152,7 +157,7 @@ def _build_q1_tables():
             "receiver_player_id", "receiving_yards", "rusher_player_id", "rushing_yards",
             "passer_player_id", "passing_yards", "pass_touchdown", "rush_touchdown", "td_player_id",
             "pass_location", "air_yards", "complete_pass", "pass_attempt", "rush_attempt",
-            "cpoe", "yardline_100", "pass_oe"])
+            "cpoe", "yardline_100", "pass_oe", "score_differential", "qb_hit", "sack", "qb_dropback"])
 
         # Position lookup for mapping a pbp play's receiver/rusher to WR/RB/TE/QB -- the weekly stats
         # file (already downloaded by load_stats() before this runs, in the same call chain via
@@ -209,6 +214,37 @@ def _build_q1_tables():
                    .groupby(["game_id", "posteam"]).pass_oe.mean()
                    .rename("proe").reset_index())
         proe_df.to_parquet(proe)
+
+        # Team pace -- real offensive plays (a dropback or a real rush attempt; spikes/kneels/penalty-
+        # only plays excluded) per game, the "volume environment" context the rest of these signals sit in.
+        real_play = p[(p.qb_dropback == 1) | (p.rush_attempt == 1)]
+        (real_play[real_play.posteam.notna()].groupby(["game_id", "posteam"]).size()
+         .rename("plays").reset_index().to_parquet(pace))
+
+        # Situational pass rate -- a team's own real pass-rate split when leading vs trailing vs close,
+        # not just its season-wide PROE. "Some coaches stubbornly run while leading by 10; others
+        # abandon the run the second they trail" -- that behavioral difference matters more than a
+        # single blended number for projecting a specific game's script. Aggregated across the whole
+        # season (not per-game) since a real situational sample needs more than one game's plays.
+        sp = real_play[real_play.posteam.notna() & real_play.score_differential.notna()].copy()
+        sp["bucket"] = pd.cut(sp.score_differential, bins=[-100, -7, 7, 100], labels=["trailing", "close", "leading"])
+        sp["is_pass"] = (sp.play_type == "pass").astype(int)
+        (sp.groupby(["posteam", "bucket"], observed=True)
+         .agg(pass_n=("is_pass", "sum"), play_n=("is_pass", "count"))
+         .reset_index().to_parquet(sitpass))
+
+        # Pressure rate -- a real proxy ((qb_hit + sack) / dropbacks), not the proprietary PFF charted
+        # number, but a genuine signal from real counted events rather than guessed. Tracked both ways
+        # in one file (same game_id grain, different key column) -- which defenses generate it
+        # (matchup context) and which QBs face it most (their own context).
+        pr = p[p.qb_dropback == 1].copy()
+        pr["pressured"] = ((pr.qb_hit == 1) | (pr.sack == 1)).astype(int)
+        def_pressure = (pr[pr.defteam.notna()].groupby(["game_id", "defteam"])
+                        .agg(pressures=("pressured", "sum"), dropbacks=("pressured", "count")).reset_index())
+        qb_pressure = (pr[pr.passer_player_id.notna()].groupby(["game_id", "passer_player_id"])
+                       .agg(pressures=("pressured", "sum"), dropbacks=("pressured", "count")).reset_index())
+        def_pressure.to_parquet(pressure)
+        qb_pressure.to_parquet(DATA / f"pressure_qb_{yr}.parquet")
 
         # longest single play this game, any quarter (a sack/no-gain doesn't count as anyone's "longest")
         long_rec = (p[p.receiving_yards > 0].groupby(["game_id", "receiver_player_id"]).receiving_yards.max()
@@ -334,6 +370,39 @@ def load_proe():
     proe = _read_all("proe")
     cols = ["game_id", "posteam", "proe"]
     return proe if proe is not None else pd.DataFrame(columns=cols)
+
+
+def load_pace():
+    """Real offensive plays per team per game -- see _build_q1_tables()."""
+    _build_q1_tables()
+    pace = _read_all("pace")
+    cols = ["game_id", "posteam", "plays"]
+    return pace if pace is not None else pd.DataFrame(columns=cols)
+
+
+def load_situational_pass_rate():
+    """A team's own pass rate split by leading/close/trailing -- see _build_q1_tables(). Blends last
+    + current season like the rest of the site's matchup data; returns {team: {bucket: pct}}."""
+    _build_q1_tables()
+    sp = _read_all("sitpass")
+    if sp is None:
+        return {}
+    g = sp.groupby(["posteam", "bucket"], observed=True).agg(pass_n=("pass_n", "sum"), play_n=("play_n", "sum")).reset_index()
+    g = g[g.play_n >= 20]
+    out = {}
+    for row in g.itertuples():
+        out.setdefault(row.posteam, {})[row.bucket] = round(float(row.pass_n / row.play_n) * 100, 1)
+    return out
+
+
+def load_pressure():
+    """Pressure rate (a real (qb_hit+sack)/dropback proxy, not the proprietary PFF number) applied by
+    each defense, and faced by each QB -- see _build_q1_tables()."""
+    _build_q1_tables()
+    d = _read_all("pressure")
+    q = _read_all("pressure_qb")
+    return (d if d is not None else pd.DataFrame(columns=["game_id", "defteam", "pressures", "dropbacks"]),
+            q if q is not None else pd.DataFrame(columns=["game_id", "passer_player_id", "pressures", "dropbacks"]))
 
 
 def load_zones():
@@ -1079,6 +1148,52 @@ def redzone_shares(cur, latest, games, rz):
     return out
 
 
+def opportunity_profile(cur, latest, games, rz):
+    """Target share, air yards share, red-zone share (as a real % of the TEAM's red-zone looks, not
+    just a raw touch count), a production-quality read (is he winning in the air or living on YAC),
+    and a role-change flag per player. target_share/air_yards_share are nflverse's own pre-computed
+    per-game columns (confirmed real and non-null against the live weekly file) -- no new data source
+    needed for those two. Role-change compares a player's last-3-game share against his season
+    baseline: "books lag on role changes more than almost anything else" is the whole reason this is
+    worth surfacing as its own signal, not buried in a season-long average."""
+    teams_in_play = {ESPN_TO_NFLVERSE.get(t, t) for g in games for t in (g["home"], g["away"])}
+    cur2 = cur.merge(rz, on=["game_id", "player_id"], how="left")
+    cur2["rz_touch"] = cur2.rz_rush.fillna(0) + cur2.rz_tgt.fillna(0)
+    team_rz_total = cur2.groupby(["team", "game_id"]).rz_touch.transform("sum")
+    cur2["rz_share"] = (cur2.rz_touch / team_rz_total).where(team_rz_total > 0)
+
+    pool = latest[latest.position.isin(["WR", "TE", "RB"]) & latest.team.isin(teams_in_play)]
+    out = {}
+    for pid in pool.index:
+        rows = cur2[cur2.player_id == pid].sort_values("week")
+        ts = rows.target_share.dropna()
+        if len(ts) < 3:
+            continue
+        season_ts, recent_ts = float(ts.mean()), float(ts.tail(3).mean())
+        ays = rows.air_yards_share.dropna()
+        recent_ays = float(ays.tail(3).mean()) if len(ays) else None
+        rz_s = rows.rz_share.dropna()
+        recent_rz_pct = float(rz_s.tail(6).mean()) if len(rz_s) else None
+
+        total_rec_yds = float(rows.rec_yds.tail(3).sum())
+        total_air_yds = float(rows.receiving_air_yards.tail(3).sum())
+        production = None
+        if total_air_yds > 0:
+            production = "air-yards driven" if total_rec_yds <= total_air_yds * 1.15 else "YAC-dependent"
+
+        role_change = None
+        if season_ts > 0 and recent_ts - season_ts >= 0.06:   # 6+ percentage point jump, a real shift
+            role_change = {"season_pct": round(season_ts * 100, 1), "recent_pct": round(recent_ts * 100, 1)}
+
+        out[pid] = {
+            "target_share": round(recent_ts * 100, 1), "target_share_season": round(season_ts * 100, 1),
+            "air_yards_share": round(recent_ays * 100, 1) if recent_ays is not None else None,
+            "redzone_pct": round(recent_rz_pct * 100, 1) if recent_rz_pct is not None else None,
+            "production": production, "role_change": role_change,
+        }
+    return out
+
+
 def _favorable_pct(zp, zd):
     """% of a player's own targets that land in zones where a given defense ranks in the weak third
     (rank <= 10 of 32) — the one number both zone_fit() and zone_edge() below are built from."""
@@ -1454,13 +1569,25 @@ def build_board():
     timelines = load_season_timelines(df, inj, games, latest)
 
     efficiency = load_efficiency()
-    redzone = redzone_shares(cur, latest, games, load_redzone())
+    rz = load_redzone()
+    redzone = redzone_shares(cur, latest, games, rz)
+    opportunity = opportunity_profile(cur, latest, games, rz)
     qb_eff = load_qb_efficiency()
     recent_cpoe = (cur.merge(qb_eff, on=["game_id", "player_id"], how="left")
                    .sort_values("week").groupby("player_id").cpoe
                    .apply(lambda s: s.dropna().tail(5).mean()))
     proe_df = load_proe()
     recent_proe = proe_df.sort_values("game_id").groupby("posteam").proe.apply(lambda s: s.tail(5).mean())
+    pace_df = load_pace()
+    recent_pace = pace_df.sort_values("game_id").groupby("posteam").plays.apply(lambda s: s.tail(5).mean())
+    sitpass = load_situational_pass_rate()
+    pressure_def_df, pressure_qb_df = load_pressure()
+    recent_def_pressure = (pressure_def_df.sort_values("game_id").groupby("defteam")
+                           .apply(lambda g: g.pressures.tail(5).sum() / g.dropbacks.tail(5).sum()
+                                  if g.dropbacks.tail(5).sum() else None, include_groups=False))
+    recent_qb_pressure = (pressure_qb_df.sort_values("game_id").groupby("passer_player_id")
+                          .apply(lambda g: g.pressures.tail(5).sum() / g.dropbacks.tail(5).sum()
+                                 if g.dropbacks.tail(5).sum() else None, include_groups=False))
 
     rows = []
     for g in games:
@@ -1495,6 +1622,9 @@ def build_board():
                     eff_team = eff_entry["teams"].get(o) if eff_entry else None
                     cpoe = recent_cpoe.get(pid)
                     proe = recent_proe.get(t)
+                    pace = recent_pace.get(t)
+                    def_pressure = recent_def_pressure.get(o)
+                    qb_pressure = recent_qb_pressure.get(pid)
                     row = {
                         "id": f"{pid}|{mkey}|{g['id']}", "pid": pid, "player": p.player_display_name,
                         "pos": pos, "team": t, "opp": o, "home": home, "game": g["id"],
@@ -1524,6 +1654,18 @@ def build_board():
                         # data: xpass=0.45 + an actual pass gives pass_oe=+54.7, i.e. (1-xpass)*100),
                         # not a 0-1 fraction -- averaging it directly already yields a real PROE percent.
                         "team_proe": round(float(proe), 1) if pd.notna(proe) else None,
+                        # Volume-environment context: real plays/game (not a stat about this player
+                        # specifically, but the pace his own team's offense plays at), and this team's
+                        # real pass-rate split when leading/close/trailing -- more specific than the
+                        # single blended PROE number above for projecting how a particular game plays out.
+                        "team_pace": round(float(pace), 1) if pd.notna(pace) else None,
+                        "team_sitpass": sitpass.get(t),
+                        # Pressure rate: a real (qb_hit+sack)/dropback proxy, not the proprietary PFF
+                        # number. def_pressure is the OPPONENT's rate (pass-rush matchup context);
+                        # qb_pressure is this player's OWN rate faced, only meaningful for QBs.
+                        "def_pressure": round(float(def_pressure) * 100, 1) if pd.notna(def_pressure) else None,
+                        "qb_pressure": round(float(qb_pressure) * 100, 1) if pos == "QB" and pd.notna(qb_pressure) else None,
+                        "opportunity": opportunity.get(pid) if pos in ("WR", "TE", "RB") else None,
                     }
                     books = odds["lines"].get(f"{norm_name(p.player_display_name)}|{mkey}")
                     if books:

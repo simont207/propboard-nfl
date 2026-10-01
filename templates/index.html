@@ -1423,6 +1423,33 @@ function renderPlayer(p) {
             <div class="wlval">${fmtNum(val)}</div></div>`;
         }).join('')}</div></div>`;
     })()}
+    ${(() => {
+      const opp = p.opportunity;
+      if (!opp) return '';
+      const bar = (label, val, extra) => `<div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span class="muted" style="font-size:12px">${label}</span>
+          <span style="font-size:12px;font-weight:700">${val}%${extra || ''}</span>
+        </div>
+        <div style="height:6px;border-radius:3px;background:var(--panel2);overflow:hidden"><div style="width:${Math.min(100, val)}%;height:100%;background:var(--green)"></div></div>
+      </div>`;
+      return `<div class="chartcard" style="margin-top:14px;padding:14px 16px">
+        <b>Opportunity Profile</b> <span class="muted" style="font-size:12px">— target share, air yards share, and red-zone share, last 3 games.</span>
+        ${opp.role_change ? `<div style="display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:8px;background:#3a2a0f;margin:10px 0">
+          <span style="color:var(--amber);font-size:14px">▲</span>
+          <span style="font-size:12px;color:var(--amber);line-height:1.5"><b>Role change:</b> target share jumped from ${opp.role_change.season_pct}% season-long to ${opp.role_change.recent_pct}% over his last 3 games.</span>
+        </div>` : ''}
+        <div style="margin-top:10px">
+          ${bar('Target share', opp.target_share, Math.abs(opp.target_share - opp.target_share_season) >= 3 ? ` <span class="muted" style="font-weight:400">vs ${opp.target_share_season}% season</span>` : '')}
+          ${opp.air_yards_share != null ? bar('Air yards share', opp.air_yards_share) : ''}
+          ${opp.redzone_pct != null ? bar('Red-zone share', opp.redzone_pct) : ''}
+        </div>
+        ${opp.production ? `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px;display:flex;justify-content:space-between;align-items:center">
+          <span class="muted" style="font-size:12px">Production quality</span>
+          <span style="font-size:12px;font-weight:700;color:${opp.production === 'air-yards driven' ? 'var(--green)' : 'var(--amber)'}">${opp.production}</span>
+        </div>` : ''}
+      </div>`;
+    })()}
     ${supportingStatsHtml(p)}
     ${nhlSupportingStatsHtml(p)}
     ${rbRushStatsHtml(p)}
@@ -1503,6 +1530,10 @@ function renderPlayer(p) {
         ${implied != null ? mline(`${esc(p.team)} implied team total`, implied.toFixed(1)) : ''}
         ${g ? mline('Game line', `${esc(g.spread || '–')}${total ? ' · O/U ' + total : ''}`) : ''}
         ${p.team_proe != null ? mline(`${esc(p.team)} recent pass rate`, `${p.team_proe >= 0 ? '+' : ''}${p.team_proe}% vs expected`) : ''}
+        ${p.team_pace != null ? mline(`${esc(p.team)} pace`, `${p.team_pace} plays/game`) : ''}
+        ${p.team_sitpass ? mline(`${esc(p.team)} pass rate by script`, `${p.team_sitpass.leading ?? '–'}% leading · ${p.team_sitpass.close ?? '–'}% close · ${p.team_sitpass.trailing ?? '–'}% trailing`) : ''}
+        ${p.def_pressure != null ? mline(`${esc(p.opp)} pressure rate`, `${p.def_pressure}%`, p.def_pressure >= 20 ? 'r' : '') : ''}
+        ${p.qb_pressure != null ? mline(`${esc(p.player.split(' ').slice(-1)[0])} pressure faced`, `${p.qb_pressure}%`, p.qb_pressure >= 20 ? 'r' : '') : ''}
         ${g && g.weather ? mline('Weather at kickoff', `${g.weather.temp}°F, ${g.weather.wind}mph wind${g.weather.precip >= 20 ? `, ${g.weather.precip}% rain` : ''}`, g.weather.wind >= 15 || g.weather.precip >= 30 ? 'r' : '') : ''}
         ${p.opp_rest ? mline(`${esc(p.opp)} rest`, `${p.opp_rest.label} (${p.opp_rest.days}d)`, p.opp_rest.days <= 4 || p.opp_rest.days >= 10 ? 'r' : '') : ''}
         ${mline(`${esc(p.player.split(' ').slice(-1)[0])} vs ${esc(p.opp)}`, h2h.length ? `${fmtNum(Math.round(avgOf(h2h.map(x => x[3])) * 10) / 10)} avg (${h2h.length} g)` : 'no games')}
@@ -1831,6 +1862,50 @@ const TRIVIAL_STREAK_MARKETS = new Set(['any_td', 'q1_any_td', 'long_pass', 'lon
   // every game regardless of opponent -- a "stayed under 0.5" streak there is a roster-role fact
   // (he's not on the PP unit), not a real matchup read.
   'pp_goals']);
+// Strongest prop per player for one game, ranked real book EV first (genuine value, not just "likely
+// to hit"), falling back to a real 75%+ L10 hit rate when no real odds exist yet for that prop. One
+// entry per player (his own single best prop, not every market he qualifies on), trivial markets
+// excluded same as the matchup-streak fix.
+function topPropsForGame(gameId, limit = 3) {
+  const byPlayer = new Map();
+  board.props.filter(p => p.game === gameId).forEach(p => {
+    if (TRIVIAL_STREAK_MARKETS.has(p.market)) return;
+    const line = lineFor(p);
+    let side = null, score = null, tag = null;
+    if (p.ev_over != null && p.ev_over > 0 && (p.ev_under == null || p.ev_over >= p.ev_under)) {
+      side = 'over'; score = 1000 + p.ev_over; tag = `${p.ev_over > 0 ? '+' : ''}${Math.round(p.ev_over)}% EV`;
+    } else if (p.ev_under != null && p.ev_under > 0) {
+      side = 'under'; score = 1000 + p.ev_under; tag = `+${Math.round(p.ev_under)}% EV`;
+    } else {
+      const l10 = rate(p.log.slice(-10).map(x => x[3]), line, 'over');
+      if (l10.n >= 5 && l10.pct >= 75) { side = 'over'; score = l10.pct; tag = `${Math.round(l10.pct)}% L10`; }
+    }
+    if (side == null) return;
+    const existing = byPlayer.get(p.pid);
+    if (!existing || score > existing.score) byPlayer.set(p.pid, { p, side, score, tag, line });
+  });
+  return [...byPlayer.values()].sort((a, b) => b.score - a.score).slice(0, limit);
+}
+function topPropsHtml(gameId) {
+  const top = topPropsForGame(gameId);
+  if (!top.length) return '';
+  return `<div class="chartcard" style="margin-top:14px;padding:14px 16px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px"><b>Top Props</b>
+      <span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:999px;background:#2a2340;color:#c4b5fd">this game</span></div>
+    <p class="muted" style="font-size:12px;margin:4px 0 10px">Ranked by real book EV, matchup efficiency, and hit rate — weak signals and near-automatic lines filtered out.</p>
+    <div style="display:flex;flex-direction:column;gap:8px">${top.map(({ p, side, tag, line }) => {
+      const eff = p.eff_rank != null ? gradeOf(p.eff_rank, side) : null;
+      const l10 = rate(p.log.slice(-10).map(x => x[3]), line, side);
+      return `<a href="#/p/${encodeURIComponent(p.id)}" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;background:var(--panel2);text-decoration:none;color:inherit">
+        ${pimg(p.player, p.img, 34)}
+        <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">${esc(p.player)} <span class="muted" style="font-weight:400">· ${esc(p.label)}</span></div>
+          <div style="font-size:13px;margin-top:1px">${side === 'over' ? 'Over' : 'Under'} ${line}</div></div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:12px;font-weight:700;color:${tag.includes('EV') ? 'var(--green)' : 'var(--text)'}">${esc(tag)}</div>
+          <div class="muted" style="font-size:11px">${eff ? eff.L + ' matchup · ' : ''}${l10.n ? Math.round(l10.pct) + '% L10' : ''}</div>
+        </div></a>`;
+    }).join('')}</div></div>`;
+}
 function playerStreaks() {
   const out = [];
   // NCAAF's box scores only go back HIST_WEEKS=6 (see cfb.py) -- nflverse/NBA/NHL carry 30+ games of
@@ -2218,6 +2293,7 @@ function renderGame(g) {
       <div class="muted">${g.week ? `Wk ${g.week} · ` : ''}${fmtTime(g.date)} · ${esc(g.spread || '')}${g.total ? ' · O/U ' + g.total : ''}${g.weather ? ` · ${g.weather.temp}°F, ${g.weather.wind}mph${g.weather.precip >= 20 ? `, ${g.weather.precip}% rain` : ''}` : ''}</div>
       <div class="spacer"></div><button class="btn" id="gvBoard">Show this game on the board</button>
     </div>
+    ${topPropsHtml(g.id)}
     <div class="pills" style="margin-top:14px"><button class="pill ${GV.market === 'all' ? 'on' : ''}" data-m="all">All props</button>
       ${present.map(([k, l]) => `<button class="pill ${GV.market === k ? 'on' : ''}" data-m="${k}">${esc(l)}</button>`).join('')}</div>
     <div class="filters">
