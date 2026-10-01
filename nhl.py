@@ -472,6 +472,39 @@ def load_rest_days(df, games):
     return out
 
 
+POS_GROUP = {"Centers": "F", "Left Wings": "F", "Right Wings": "F", "Wings": "F",
+             "Defense": "D", "Defensemen": "D", "Goalies": "G"}
+def load_current_rosters(games):
+    """Current full roster per team straight from ESPN -- a separate, faster-moving source than our
+    own box-score history (which only reflects players who've actually played a game), used to catch
+    a recently-traded/signed player before his new team's box scores start showing him. Only fetched
+    for teams with an upcoming game, since that's the only case bootstrapping matters for. One request
+    per team (~32), fetched fresh every build rather than cached -- the whole point is freshness, and
+    it's a small cost next to the box-score fetches that already dominate build time. Unlike NBA's
+    flat athlete list, NHL's roster endpoint groups athletes by position NAME (confirmed against a
+    real team before writing this), not an abbreviation -- mapped via POS_GROUP to the same F/D/G
+    scheme parse_boxscore() already uses."""
+    teams = sorted({g["home"] for g in games} | {g["away"] for g in games})
+    out = {}
+    for team in teams:
+        try:
+            d = _get(f"teams/{team.lower()}/roster")
+        except Exception as e:
+            print(f"  NHL roster fetch failed for {team}: {e}")
+            continue
+        for grp in d.get("athletes", []):
+            pos = POS_GROUP.get(grp.get("position"))
+            if not pos:
+                continue
+            for a in grp.get("items", []):
+                aid = a.get("id")
+                if not aid:
+                    continue
+                out[aid] = {"team": team, "pos": pos, "name": a.get("fullName"),
+                            "headshot": (a.get("headshot") or {}).get("href")}
+    return out
+
+
 def build_board():
     print("NHL: fetching last season's history (2025-26)...")
     df = load_history(LAST_SEASON)
@@ -489,12 +522,33 @@ def build_board():
     line_hist = load_line_history()
 
     latest = df.sort_values("sw").groupby("athlete_id").tail(1).set_index("athlete_id")
+    # A player who was recently traded or claimed off waivers has either zero box-score rows under
+    # his new team (invisible until his new team's games start flowing in) or -- more often in-season
+    # for this sport than NFL -- a stale `latest` row still pointing at his OLD team. ESPN's own
+    # team-roster endpoint is a separate, faster-moving source of truth for CURRENT team, so bootstrap/
+    # reassign from it. `hist` below is looked up by athlete_id alone (no team filter), so his real
+    # game log under his old team still powers his line/history under his new one -- nothing
+    # backfilled, just real games re-tagged to his current team, same principle as the NFL site's fix.
+    roster = load_current_rosters(games)
+    if roster:
+        fallback = []
+        for aid, r in roster.items():
+            cur_team = latest.loc[aid, "team"] if aid in latest.index else None
+            if cur_team == r["team"]:
+                continue
+            if aid not in latest.index:
+                continue   # never had a real game logged at all -- nothing to bootstrap from
+            fallback.append({"athlete_id": aid, "team": r["team"], "pos": r["pos"],
+                              "name": r["name"], "headshot": r["headshot"]})
+        if fallback:
+            fb = pd.DataFrame(fallback).set_index("athlete_id")
+            latest = pd.concat([latest[~latest.index.isin(fb.index)], fb])
     rows = []
     for g in games:
         for team, opp in ((g["home"], g["away"]), (g["away"], g["home"])):
             cand = latest[latest.team == team]
             for aid, p in cand.iterrows():
-                hist = df[(df.athlete_id == aid) & (df.team == team)]
+                hist = df[df.athlete_id == aid]
                 pos = p.pos
                 relevant = GOALIE_MARKETS if pos == "G" else SKATER_MARKETS
                 recent_min = hist.minutes.tail(8).mean()
