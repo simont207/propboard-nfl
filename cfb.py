@@ -259,6 +259,34 @@ def defense_ranks(df, fbs_teams):
     return ranks, dvp
 
 
+def load_rest_days(df, games):
+    """Days between an upcoming game and that team's own most recent game in our loaded box-score
+    history -- unlike the NFL site (which reads a dedicated schedule CSV), the per-team game dates
+    needed here are already sitting in `df` from building the rest of the board, so no new data
+    source is needed. CFB plays on the same weekly cadence as the NFL, so it reuses that site's
+    exact label thresholds rather than NBA/NHL's back-to-back-tuned ones."""
+    import datetime
+    by_team = {team: sorted(grp["date"].str[:10].unique()) for team, grp in df.groupby("team")}
+    out = {}
+    for gm in games:
+        kickoff_utc = datetime.datetime.fromisoformat(gm["date"].replace("Z", "+00:00"))
+        kickoff = (kickoff_utc - datetime.timedelta(hours=5)).date()
+        for side in ("home", "away"):
+            team = gm[side]
+            prior = [datetime.date.fromisoformat(d) for d in by_team.get(team, []) if datetime.date.fromisoformat(d) < kickoff]
+            if not prior:
+                continue
+            days = (kickoff - max(prior)).days
+            out[(team, gm["id"])] = {"days": days, "label": (
+                "Off a bye week" if days >= 12 else
+                "Extra rest" if days >= 8 else
+                "Standard week of rest" if days == 7 else
+                "Short week" if days <= 4 else
+                f"{days} days of rest"
+            )}
+    return out
+
+
 def load_cfb_betting_history(seasons):
     """Real per-team ATS/O-U results for `seasons`, from cfbfastR-data's schedules (final scores)
     joined with its betting lines (closing spread/total, one row per game picked via CFB_BOOK_ORDER).
@@ -425,6 +453,7 @@ def build_board():
     counts = df.groupby("team").game_id.nunique()
     fbs_teams = set(counts[counts >= min(3, df.week.nunique())].index)
     ranks, dvp = defense_ranks(df, fbs_teams)
+    rest = load_rest_days(df, games)
 
     latest = df.sort_values(["season", "week", "date"]).groupby("athlete_id").tail(1).set_index("athlete_id")
     rows = []
@@ -434,12 +463,14 @@ def build_board():
             for aid, p in cand.iterrows():
                 hist = df[(df.athlete_id == aid) & (df.team == team)]
                 pos = p.pos
+                # No volume floor -- every position-eligible player gets every market regardless of
+                # recent usage, matching the NFL site's identical call (Simon: "remove it entirely,
+                # show every player"). `vol` is still computed and stored below for display/sorting;
+                # it just no longer gates whether a prop appears at all.
                 for mkey, (label, positions, vmin) in MARKETS.items():
                     if pos not in positions:
                         continue
                     vol = hist[VOL_COL[mkey]].tail(6).mean()
-                    if not vol >= vmin:
-                        continue
                     hl = hist.tail(20)
                     if hl.empty:
                         continue
@@ -456,6 +487,7 @@ def build_board():
                                  1 if r.team == g["home"] else (0 if r.team == g["away"] else None),
                                  None, None] for r in hl.itertuples()],
                         "vol": round(float(vol), 1),
+                        "opp_rest": rest.get((opp, g["id"])),
                     })
 
     recent = {}
@@ -475,8 +507,20 @@ def build_board():
                                      round(float(top[mkey]), 1) if top is not None else 0])
                 recent[f"{def_team}|{pos}|{mkey}"] = entries
 
+    # Individual player-game results vs each defense -- unlike NFL's version, every parsed boxscore
+    # row here already has a real 0+ value for every stat (no NaN to filter out), so this is just the
+    # last 8 games, newest first, with no qualifying-game distinction needed.
+    recent_players = {}
+    for mkey, (_, positions, _) in MARKETS.items():
+        for pos in positions:
+            sub = df[df.pos == pos].sort_values(["season", "week"])
+            for def_team, grp in sub.groupby("opp"):
+                rows_rp = grp.tail(8).iloc[::-1]
+                recent_players[f"{def_team}|{pos}|{mkey}"] = [
+                    [x.name, x.team, round(float(getattr(x, mkey)), 1), x.date[:10]] for x in rows_rp.itertuples()]
+
     board = {"season": season, "games": games, "props": rows, "dvp": dvp, "recent": recent,
-             "team_streaks": team_streaks,
+             "recent_players": recent_players, "team_streaks": team_streaks,
              "inj_week": 0, "built": time.time(), "has_key": False, "odds_pulled": None, "odds_remaining": None}
     return _clean_nans(board)
 

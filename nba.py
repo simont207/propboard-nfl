@@ -447,6 +447,30 @@ def defense_ranks(df):
     return ranks, dvp
 
 
+def load_rest_days(df, games):
+    """Days between an upcoming game and that team's own most recent game in our loaded box-score
+    history -- unlike the NFL site (which reads a dedicated schedule CSV), the per-team game dates
+    needed here are already sitting in `df` from building the rest of the board, so no new data
+    source is needed. NBA plays far more often than NFL (back-to-backs are routine), so the labels
+    are tuned to that cadence instead of reusing the NFL site's week-based language."""
+    import datetime
+    by_team = {team: sorted(grp["sw"].unique()) for team, grp in df.groupby("team")}
+    out = {}
+    for gm in games:
+        kickoff_utc = datetime.datetime.fromisoformat(gm["date"].replace("Z", "+00:00"))
+        kickoff = (kickoff_utc - datetime.timedelta(hours=5)).date()
+        for side in ("home", "away"):
+            team = gm[side]
+            prior = [datetime.date.fromisoformat(d) for d in by_team.get(team, []) if datetime.date.fromisoformat(d) < kickoff]
+            if not prior:
+                continue
+            days = (kickoff - max(prior)).days
+            label = ("Back-to-back" if days == 0 else "1 day of rest" if days == 1 else
+                     "Extended rest" if days >= 4 else f"{days} days of rest")
+            out[(team, gm["id"])] = {"days": days, "label": label}
+    return out
+
+
 def build_board():
     print("NBA: fetching last season's history (2025-26)...")
     df = load_history(LAST_SEASON)
@@ -459,6 +483,7 @@ def build_board():
 
     print("NBA: fetching upcoming schedule...")
     games = upcoming_games()
+    rest = load_rest_days(df, games)
     sgo = load_sgo()
     line_hist = load_line_history()
 
@@ -471,9 +496,11 @@ def build_board():
                 hist = df[(df.athlete_id == aid) & (df.team == team)]
                 pos = p.pos
                 recent_min = hist.minutes.tail(8).mean()
+                # No volume floor -- every player gets every market regardless of recent playing time,
+                # matching the NFL site's identical call (Simon: "remove it entirely, show every
+                # player"). `recent_min` is still computed and stored as `vol` below for display/
+                # sorting; it just no longer gates whether a prop appears at all.
                 for mkey, (label, vmin) in MARKETS.items():
-                    if not recent_min >= vmin:
-                        continue
                     hl = hist.tail(20)
                     if hl.empty:
                         continue
@@ -496,6 +523,7 @@ def build_board():
                         "vol": round(float(recent_min), 1),
                         "ev_over": None, "ev_under": None, "fair_line": None, "real_alts": [],
                         "line_history": line_hist.get(f"{norm_name(p['name'])}|{mkey}|{g['id']}"),
+                        "opp_rest": rest.get((opp, g["id"])),
                     }
                     sg = sgo["lines"].get(f"{norm_name(p['name'])}|{mkey}|{g['id']}")
                     if sg and sg["books"]:
@@ -524,7 +552,20 @@ def build_board():
                                      round(float(top[mkey]), 1) if top is not None else 0])
                 recent[f"{def_team}|{pos}|{mkey}"] = entries
 
+    # Individual player-game results vs each defense -- unlike NFL's version, every parsed boxscore
+    # row here already has a real 0+ value for every stat (no NaN to filter out), so this is just the
+    # last 8 games, newest first, with no qualifying-game distinction needed.
+    recent_players = {}
+    for mkey in MARKETS:
+        for pos in POSITIONS:
+            sub = df[df.pos == pos].sort_values("sw")
+            for def_team, grp in sub.groupby("opp"):
+                rows_rp = grp.tail(8).iloc[::-1]
+                recent_players[f"{def_team}|{pos}|{mkey}"] = [
+                    [x.name, x.team, round(float(getattr(x, mkey)), 1), x.sw] for x in rows_rp.itertuples()]
+
     board = {"season": LAST_SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
+             "recent_players": recent_players,
              "inj_week": 0, "built": time.time(), "has_key": bool(load_sgo_key()),
              "odds_pulled": sgo.get("pulled"), "odds_remaining": None}
     return _clean_nans(board)
