@@ -1447,9 +1447,9 @@ function renderPlayer(p) {
       if (!tl || !tl.dots.length) return '';
       const dotColor = s => s === 'played' ? 'var(--green)' : s === 'missed' ? 'var(--red)' : 'var(--line)';
       return `<div class="chartcard" style="margin-top:14px;padding:14px 16px">
-        <b>${board.season} Games Played</b>
+        <b>${esc(tl.title || board.season + ' Games Played')}</b>
         <div style="display:flex;gap:5px;margin-top:10px;flex-wrap:wrap">${tl.dots.map(d =>
-          `<div title="Week ${d.week}: ${d.status === 'played' ? 'Played' : d.status === 'missed' ? 'Missed' : 'Upcoming'}"
+          `<div title="${esc(d.label || 'Week ' + d.week)}: ${d.status === 'played' ? 'Played' : d.status === 'missed' ? 'Missed' : 'Upcoming'}"
              style="width:14px;height:14px;border-radius:50%;background:${d.status === 'upcoming' ? 'transparent' : dotColor(d.status)};border:1px solid ${d.status === 'upcoming' ? 'var(--line)' : dotColor(d.status)}"></div>`
         ).join('')}</div>
         ${tl.history.length ? `<div style="margin-top:12px">${tl.history.map(h =>

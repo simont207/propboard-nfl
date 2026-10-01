@@ -416,6 +416,52 @@ def cfb_team_streaks(games, hist):
     return out
 
 
+def load_season_timeline(season, latest, df):
+    """Per-player season participation: a dot per scheduled week (played/missed/upcoming) for his own
+    team's games this season (byes excluded), same shape as app.py's load_season_timelines() so the
+    frontend card needs zero changes. No injury-report history sub-list -- unlike NFL, CFB's own
+    injury endpoint was already checked (see module notes above) and found too sparse/unreliable to
+    trust, so `history` is always empty here rather than guessing at why a week was missed.
+
+    Built from ESPN's own per-week scoreboard rather than cfbfastR's schedule file used elsewhere in
+    this module -- cfbfastR's schedule keys teams by full name ("Ohio State") while our own data uses
+    ESPN's short codes ("OSU"); for the ATS/O-U streaks that gap is already bridged via ESPN's numeric
+    team id, but for a simple per-week played/missed/upcoming dot, pulling the whole season straight
+    from ESPN's own scoreboard (same source as everything else in this module) avoids needing that
+    bridge at all."""
+    team_weeks, week_state = {}, {}
+    for wk in range(1, 17):
+        try:
+            sb = scoreboard(week=wk, season=season)
+        except Exception as e:
+            print(f"  NCAAF timeline: week {wk} scoreboard failed: {e}")
+            continue
+        for e in sb.get("events", []):
+            comp = e["competitions"][0]
+            state = comp["status"]["type"]["state"]
+            for c in comp["competitors"]:
+                team = c["team"].get("abbreviation")
+                if not team:
+                    continue
+                team_weeks.setdefault(team, set()).add(wk)
+                week_state[(team, wk)] = state
+
+    cur = df[df.season == season]
+    played = cur.groupby("athlete_id").week.apply(set).to_dict()
+
+    out = {}
+    for pid, p in latest.iterrows():
+        weeks = sorted(team_weeks.get(p.team, set()))
+        if not weeks:
+            continue
+        p_played = played.get(pid, set())
+        dots = [{"week": wk, "status": (
+            "upcoming" if week_state.get((p.team, wk)) != "post" else "played" if wk in p_played else "missed"
+        )} for wk in weeks]
+        out[pid] = {"dots": dots, "history": []}
+    return out
+
+
 def build_board():
     print("NCAAF: fetching schedule...")
     games, week, season = upcoming_games()
@@ -456,6 +502,12 @@ def build_board():
     rest = load_rest_days(df, games)
 
     latest = df.sort_values(["season", "week", "date"]).groupby("athlete_id").tail(1).set_index("athlete_id")
+    print("NCAAF: fetching full-season schedule for the Games Played timeline...")
+    try:
+        timelines = load_season_timeline(season, latest, df)
+    except Exception as e:
+        print(f"NCAAF: season timeline failed, leaving it empty: {e}")
+        timelines = {}
     rows = []
     for g in games:
         for team, opp in ((g["home"], g["away"]), (g["away"], g["home"])):
@@ -488,6 +540,7 @@ def build_board():
                                  None, None] for r in hl.itertuples()],
                         "vol": round(float(vol), 1),
                         "opp_rest": rest.get((opp, g["id"])),
+                        "timeline": timelines.get(aid),
                     })
 
     recent = {}

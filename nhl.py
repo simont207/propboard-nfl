@@ -472,6 +472,26 @@ def load_rest_days(df, games):
     return out
 
 
+def load_recent_participation(df, latest, n=15):
+    """Per-player recent participation: a dot per the team's last N games (played/missed), not a
+    full-season view like the NFL site's week-based timeline. NHL plays an 82-game season with
+    frequent back-to-backs and real load-management rest (not just injury), so a full season would be
+    both visually unwieldy and a much noisier "missed" signal than NFL's version -- a recent window is
+    the actually useful read here. No injury-report history sub-list -- no injury data source is
+    integrated for this sport, so `history` stays empty rather than guessing at a reason."""
+    team_games = {team: sorted(grp["sw"].unique())[-n:] for team, grp in df.groupby("team")}
+    out = {}
+    for aid, p in latest.iterrows():
+        dates = team_games.get(p.team, [])
+        if not dates:
+            continue
+        p_played = set(df[df.athlete_id == aid]["sw"])
+        dots = [{"week": i + 1, "status": "played" if d in p_played else "missed",
+                  "label": f"{int(d[5:7])}/{int(d[8:10])}"} for i, d in enumerate(dates)]
+        out[aid] = {"dots": dots, "history": [], "title": f"Last {len(dates)} Games Played"}
+    return out
+
+
 POS_GROUP = {"Centers": "F", "Left Wings": "F", "Right Wings": "F", "Wings": "F",
              "Defense": "D", "Defensemen": "D", "Goalies": "G"}
 def load_current_rosters(games):
@@ -543,6 +563,7 @@ def build_board():
         if fallback:
             fb = pd.DataFrame(fallback).set_index("athlete_id")
             latest = pd.concat([latest[~latest.index.isin(fb.index)], fb])
+    timelines = load_recent_participation(df, latest)
     rows = []
     for g in games:
         for team, opp in ((g["home"], g["away"]), (g["away"], g["home"])):
@@ -580,6 +601,7 @@ def build_board():
                         "ev_over": None, "ev_under": None, "fair_line": None, "real_alts": [],
                         "line_history": line_hist.get(f"{norm_name(p['name'])}|{mkey}|{g['id']}"),
                         "opp_rest": rest.get((opp, g["id"])),
+                        "timeline": timelines.get(aid),
                     }
                     sg = sgo["lines"].get(f"{norm_name(p['name'])}|{mkey}|{g['id']}")
                     if sg and sg["books"]:
