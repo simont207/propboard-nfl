@@ -1887,6 +1887,14 @@ function topPropsForGame(gameId, limit = 3) {
     if (tag.includes('EV')) {
       const l10check = rate(p.log.slice(-10).map(x => x[3]), line, side);
       if (l10check.n >= 5 && l10check.pct < 25) return;
+      // A plain last-10 slice can straddle a season boundary and blend in a player's OLD role with
+      // his current one (seen live: a receiver with 4 stale low-usage games from last season plus a
+      // real recent role jump -- "71% L10 Under" looked fine, but the side lost 2 of his actual last
+      // 3 games THIS season). Current-season games are what his role looks like right now, so the
+      // pick must also hold up against just those once there are enough of them to judge.
+      const seasonVals = p.log.filter(x => x[0] === board.season).map(x => x[3]);
+      const seasonCheck = rate(seasonVals, line, side);
+      if (seasonCheck.n >= 3 && seasonCheck.pct < 50) return;
     }
     const existing = byPlayer.get(p.pid);
     if (!existing || score > existing.score) byPlayer.set(p.pid, { p, side, score, tag, line });
