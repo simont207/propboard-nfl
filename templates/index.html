@@ -1866,6 +1866,14 @@ const TRIVIAL_STREAK_MARKETS = new Set(['any_td', 'q1_any_td', 'long_pass', 'lon
 // to hit"), falling back to a real 75%+ L10 hit rate when no real odds exist yet for that prop. One
 // entry per player (his own single best prop, not every market he qualifies on), trivial markets
 // excluded same as the matchup-streak fix.
+// Same stat + convention as the "Matchup rank" shown everywhere else on the site (board sort,
+// player-page hero, game-page alt rows: gradeOf(p.opp_rank, side, poolN(...))) -- Top Props must
+// use this exact one, not a different rank, so its badge can never disagree with what the site
+// already told the user about this same matchup elsewhere.
+function matchupOk(p, side) {
+  const g = gradeOf(p.opp_rank, side, poolN(p.pos, p.market));
+  return !g || !['D+', 'D', 'F'].includes(g.L);
+}
 function topPropsForGame(gameId, limit = 3) {
   const byPlayer = new Map();
   board.props.filter(p => p.game === gameId).forEach(p => {
@@ -1896,6 +1904,13 @@ function topPropsForGame(gameId, limit = 3) {
       const seasonCheck = rate(seasonVals, line, side);
       if (seasonCheck.n >= 3 && seasonCheck.pct < 50) return;
     }
+    // Guard against recommending a side the matchup itself argues against (seen live: "Under" on a
+    // WR against a defense ranked 6th of 32 -- i.e. one of the most generous in the league to that
+    // exact position/market -- shown as a D+ matchup once graded the same way the rest of the site
+    // already grades opp_rank). Applies to the L10-fallback pick too, not just EV picks, since a
+    // "hit 75%+ of games" streak against a defense that's historically been this bad is exactly the
+    // kind of weak/contradictory signal this card already claims to filter out.
+    if (!matchupOk(p, side)) return;
     const existing = byPlayer.get(p.pid);
     if (!existing || score > existing.score) byPlayer.set(p.pid, { p, side, score, tag, line });
   });
@@ -1909,7 +1924,7 @@ function topPropsHtml(gameId) {
       <span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:999px;background:#2a2340;color:#c4b5fd">this game</span></div>
     <p class="muted" style="font-size:12px;margin:4px 0 10px">Ranked by real book EV, matchup efficiency, and hit rate — weak signals and near-automatic lines filtered out.</p>
     <div style="display:flex;flex-direction:column;gap:8px">${top.map(({ p, side, tag, line }) => {
-      const eff = p.eff_rank != null ? gradeOf(p.eff_rank, side) : null;
+      const eff = gradeOf(p.opp_rank, side, poolN(p.pos, p.market));
       const l10 = rate(p.log.slice(-10).map(x => x[3]), line, side);
       return `<a href="#/p/${encodeURIComponent(p.id)}" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;background:var(--panel2);text-decoration:none;color:inherit">
         ${pimg(p.player, p.img, 34)}
