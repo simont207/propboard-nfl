@@ -1870,14 +1870,29 @@ const TRIVIAL_STREAK_MARKETS = new Set(['any_td', 'q1_any_td', 'long_pass', 'lon
 // player-page hero, game-page alt rows: gradeOf(p.opp_rank, side, poolN(...))) -- Top Props must
 // use this exact one, not a different rank, so its badge can never disagree with what the site
 // already told the user about this same matchup elsewhere.
-function matchupOk(p, side) {
+// The card's own subtitle claims picks are "ranked by real book EV, matchup efficiency, and hit
+// rate" -- seen live, that wasn't true: matchup grade was only a weak pass/fail filter (anything
+// better than D+ qualified), so C/C- grades routinely sat in the top 3 next to genuine A+ ones.
+// Bar raised to B- or better (average-or-worse matchups no longer qualify at all, not just the
+// clearly bad D+/D/F ones), and matchupPts below makes grade quality actually move the ranking,
+// not just gate it.
+function matchupGradeIdx(p, side) {
   const g = gradeOf(p.opp_rank, side, poolN(p.pos, p.market));
-  return !g || !['D+', 'D', 'F'].includes(g.L);
+  return g ? GRADES.indexOf(g.L) : null;
+}
+function matchupOk(p, side) {
+  const idx = matchupGradeIdx(p, side);
+  return idx === null || idx <= 5; // B- (idx 5) or better
+}
+function matchupPts(p, side) {
+  const idx = matchupGradeIdx(p, side);
+  return idx === null ? 0 : (11 - idx) * 2; // A+ (idx 0) -> 22, B- (idx 5) -> 12
 }
 function topPropsForGame(gameId, limit = 3) {
   const byPlayer = new Map();
   board.props.filter(p => p.game === gameId).forEach(p => {
     if (TRIVIAL_STREAK_MARKETS.has(p.market)) return;
+    if (p.market === 'xp_made_m') return; // kicker extra points: Simon never wants these in Top Props
     const line = lineFor(p);
     let side = null, score = null, tag = null;
     if (p.ev_over != null && p.ev_over > 0 && (p.ev_under == null || p.ev_over >= p.ev_under)) {
@@ -1912,6 +1927,10 @@ function topPropsForGame(gameId, limit = 3) {
     // "hit 75%+ of games" streak against a defense that's historically been this bad is exactly the
     // kind of weak/contradictory signal this card already claims to filter out.
     if (!matchupOk(p, side)) return;
+    // Matchup quality now genuinely moves the ranking (not just a gate) -- among qualifying
+    // candidates, a materially better matchup can outrank a modestly-higher-EV one, matching what
+    // the subtitle has claimed all along.
+    score += matchupPts(p, side);
     const existing = byPlayer.get(p.pid);
     if (!existing || score > existing.score) byPlayer.set(p.pid, { p, side, score, tag, line });
   });
