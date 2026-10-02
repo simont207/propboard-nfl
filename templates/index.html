@@ -1863,7 +1863,7 @@ const TRIVIAL_STREAK_MARKETS = new Set(['any_td', 'q1_any_td', 'long_pass', 'lon
   // (he's not on the PP unit), not a real matchup read.
   'pp_goals']);
 // Strongest prop per player for one game, ranked real book EV first (genuine value, not just "likely
-// to hit"), falling back to a real 75%+ L10 hit rate when no real odds exist yet for that prop. One
+// to hit"), falling back to a real 75%+ L5 hit rate when no real odds exist yet for that prop. One
 // entry per player (his own single best prop, not every market he qualifies on), trivial markets
 // excluded same as the matchup-streak fix.
 // Same stat + convention as the "Matchup rank" shown everywhere else on the site (board sort,
@@ -1885,21 +1885,22 @@ function topPropsForGame(gameId, limit = 3) {
     } else if (p.ev_under != null && p.ev_under > 0) {
       side = 'under'; score = 1000 + p.ev_under; tag = `+${Math.round(p.ev_under)}% EV`;
     } else {
-      const l10 = rate(p.log.slice(-10).map(x => x[3]), line, 'over');
-      if (l10.n >= 5 && l10.pct >= 75) { side = 'over'; score = l10.pct; tag = `${Math.round(l10.pct)}% L10`; }
+      const l5 = rate(p.log.slice(-5).map(x => x[3]), line, 'over');
+      if (l5.n >= 5 && l5.pct >= 75) { side = 'over'; score = l5.pct; tag = `${Math.round(l5.pct)}% L5`; }
     }
     if (side == null) return;
     // Guard against a prop whose EV math disagrees with its own real recent results (seen live: a
     // market's EV said +80% on a side that actually hit 1 of its last 10 games) -- never surface a
     // "top" prop that contradicts the hit rate shown right next to it.
     if (tag.includes('EV')) {
-      const l10check = rate(p.log.slice(-10).map(x => x[3]), line, side);
-      if (l10check.n >= 5 && l10check.pct < 25) return;
-      // A plain last-10 slice can straddle a season boundary and blend in a player's OLD role with
-      // his current one (seen live: a receiver with 4 stale low-usage games from last season plus a
-      // real recent role jump -- "71% L10 Under" looked fine, but the side lost 2 of his actual last
-      // 3 games THIS season). Current-season games are what his role looks like right now, so the
-      // pick must also hold up against just those once there are enough of them to judge.
+      const l5check = rate(p.log.slice(-5).map(x => x[3]), line, side);
+      if (l5check.n >= 5 && l5check.pct < 25) return;
+      // A plain last-5 slice can still straddle a season boundary and blend in a player's OLD role
+      // with his current one (seen live with the old last-10 window: a receiver with stale low-usage
+      // games from last season plus a real recent role jump -- the longer window looked fine, but the
+      // side lost most of his actual games THIS season). Current-season games are what his role looks
+      // like right now, so the pick must also hold up against just those once there are enough of them
+      // to judge.
       const seasonVals = p.log.filter(x => x[0] === board.season).map(x => x[3]);
       const seasonCheck = rate(seasonVals, line, side);
       if (seasonCheck.n >= 3 && seasonCheck.pct < 50) return;
@@ -1925,14 +1926,14 @@ function topPropsHtml(gameId) {
     <p class="muted" style="font-size:12px;margin:4px 0 10px">Ranked by real book EV, matchup efficiency, and hit rate — weak signals and near-automatic lines filtered out.</p>
     <div style="display:flex;flex-direction:column;gap:8px">${top.map(({ p, side, tag, line }) => {
       const eff = gradeOf(p.opp_rank, side, poolN(p.pos, p.market));
-      const l10 = rate(p.log.slice(-10).map(x => x[3]), line, side);
+      const l5 = rate(p.log.slice(-5).map(x => x[3]), line, side);
       return `<a href="#/p/${encodeURIComponent(p.id)}" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;background:var(--panel2);text-decoration:none;color:inherit">
         ${pimg(p.player, p.img, 34)}
         <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">${esc(p.player)} <span class="muted" style="font-weight:400">· ${esc(p.label)}</span></div>
           <div style="font-size:13px;margin-top:1px">${side === 'over' ? 'Over' : 'Under'} ${line}</div></div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:12px;font-weight:700;color:${tag.includes('EV') ? 'var(--green)' : 'var(--text)'}">${esc(tag)}</div>
-          <div class="muted" style="font-size:11px">${eff ? eff.L + ' matchup · ' : ''}${l10.n ? Math.round(l10.pct) + '% L10' : ''}</div>
+          <div class="muted" style="font-size:11px">${eff ? eff.L + ' matchup · ' : ''}${l5.n ? Math.round(l5.pct) + '% L5' : ''}</div>
         </div></a>`;
     }).join('')}</div></div>`;
 }
