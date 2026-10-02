@@ -1873,16 +1873,16 @@ const TRIVIAL_STREAK_MARKETS = new Set(['any_td', 'q1_any_td', 'long_pass', 'lon
 // The card's own subtitle claims picks are "ranked by real book EV, matchup efficiency, and hit
 // rate" -- seen live, that wasn't true: matchup grade was only a weak pass/fail filter (anything
 // better than D+ qualified), so C/C- grades routinely sat in the top 3 next to genuine A+ ones.
-// Bar raised to B- or better (average-or-worse matchups no longer qualify at all, not just the
-// clearly bad D+/D/F ones), and matchupPts below makes grade quality actually move the ranking,
-// not just gate it.
+// Bar raised to B- or better, then raised again to A-tier only (A-/A/A+) at Simon's explicit call
+// -- he wants every Top Props matchup genuinely strong, not just above-average. matchupPts below
+// also makes grade quality actually move the ranking, not just gate it.
 function matchupGradeIdx(p, side) {
   const g = gradeOf(p.opp_rank, side, poolN(p.pos, p.market));
   return g ? GRADES.indexOf(g.L) : null;
 }
 function matchupOk(p, side) {
   const idx = matchupGradeIdx(p, side);
-  return idx === null || idx <= 5; // B- (idx 5) or better
+  return idx === null || idx <= 2; // A- (idx 2) or better
 }
 function matchupPts(p, side) {
   const idx = matchupGradeIdx(p, side);
