@@ -14,6 +14,7 @@ keys = [minutes, points, fieldGoalsMade-fieldGoalsAttempted, threePointFieldGoal
         freeThrowsMade-..., rebounds, assists, turnovers, steals, blocks, offensiveRebounds,
         defensiveRebounds, fouls, plusMinus]
 """
+import datetime
 import json
 import re
 import time
@@ -30,7 +31,16 @@ GAMES_DIR.mkdir(parents=True, exist_ok=True)
 ESPN_HOSTS = ["site.api.espn.com", "site.web.api.espn.com"]   # 2nd host: site.api.* 403s from GH Actions
 ESPN_PATH = "apis/site/v2/sports/basketball/nba"
 HTTP = {"User-Agent": "Mozilla/5.0 PropBoard"}
-LAST_SEASON = 2026     # ESPN's "season.year" label for the 2025-26 season (the most recently completed one)
+def season_of(date_str):
+    """ESPN labels a season by its ending year (2025-26 = 2026), so a game dated Aug-Dec belongs to the
+    season that ends NEXT year. Derived from the date itself so nothing has to be bumped by hand each
+    year -- the board used to hard-code one season and would have stayed frozen on April 2026 forever."""
+    y, m = int(date_str[:4]), int(date_str[5:7])
+    return y + 1 if m >= 8 else y
+
+
+CUR_SEASON = season_of(datetime.date.today().isoformat())   # in progress, or about to start (new season is "current" from August)
+LAST_SEASON = CUR_SEASON - 1                                # the prior, completed season
 
 MARKETS = {                  # label, min recent minutes/game to qualify for a line
     "pts": ("Points", 12),
@@ -260,12 +270,24 @@ def season_game_days(season_year):
     (ESPN labels a season by its ending year, e.g. the 2025-26 season = year 2026, and mid-January
     always falls inside the regular season, never in the neighboring season's calendar by mistake)."""
     cache = DATA / f"calendar_{season_year}.json"
-    if cache.exists():
-        return json.loads(cache.read_text())
-    sb = scoreboard(date=f"{season_year}0115")
+    # A season that's still being played/scheduled gets its calendar re-fetched daily; only a finished
+    # season's calendar is truly permanent. An empty list is never trusted from cache or written.
+    live = season_year >= CUR_SEASON
+    stale = live and cache.exists() and time.time() - cache.stat().st_mtime > 86400
+    if cache.exists() and not stale:
+        cached = json.loads(cache.read_text())
+        if cached:
+            return cached
+    try:
+        sb = scoreboard(date=f"{season_year}0115")
+    except Exception:
+        if cache.exists():
+            return json.loads(cache.read_text())
+        raise
     league = (sb.get("leagues") or [{}])[0]
     cal = [d[:10].replace("-", "") for d in league.get("calendar", [])]
-    cache.write_text(json.dumps(cal))
+    if cal:
+        cache.write_text(json.dumps(cal))
     return cal
 
 
@@ -360,6 +382,11 @@ def load_history(season_year, max_days=None):
     rotations and opponent dynamics than the regular-season sample we want). Cached forever per
     completed game, so a rebuild only fetches games that are genuinely new since last time."""
     days = season_game_days(season_year)
+    if season_year >= CUR_SEASON:
+        # in-progress season: its calendar lists the whole schedule, but only days up to today can have
+        # finished games -- don't spend a request on each future day
+        today = datetime.date.today().strftime("%Y%m%d")
+        days = [d for d in days if d <= today]
     if max_days:
         days = days[:max_days]
     rows = []
@@ -432,6 +459,12 @@ def defense_ranks(df):
     """Rank all 30 teams by average allowed per game to each position group (G/F/C)."""
     ranks, dvp = {}, {}
     n = 30
+    # Trailing window: each defense's most recent 82 games (one regular season's worth). With one season
+    # loaded this is every game, i.e. unchanged; once the new season starts it rolls forward instead of
+    # averaging two seasons together for good.
+    recent_games = (df[["opp", "game_id", "sw"]].drop_duplicates(["opp", "game_id"])
+                    .sort_values("sw").groupby("opp").tail(82)[["opp", "game_id"]])
+    df = df.merge(recent_games, on=["opp", "game_id"])
     for mkey in MARKETS:
         for pos in POSITIONS:
             sub = df[df.pos == pos]
@@ -478,16 +511,41 @@ def load_recent_participation(df, latest, n=15):
     both visually unwieldy and a much noisier "missed" signal than NFL's version -- a recent window is
     the actually useful read here. No injury-report history sub-list -- no injury data source is
     integrated for this sport, so `history` stays empty rather than guessing at a reason."""
-    team_games = {team: sorted(grp["sw"].unique())[-n:] for team, grp in df.groupby("team")}
+    all_dates = {team: sorted(grp["sw"].unique()) for team, grp in df.groupby("team")}
+    today = datetime.date.today()
+    md = lambda d: f"{int(d[5:7])}/{int(d[8:10])}"
     out = {}
     for aid, p in latest.iterrows():
-        dates = team_games.get(p.team, [])
+        team_dates = all_dates.get(p.team, [])
+        dates = team_dates[-n:]
         if not dates:
             continue
         p_played = set(df[df.athlete_id == aid]["sw"])
         dots = [{"week": i + 1, "status": "played" if d in p_played else "missed",
-                  "label": f"{int(d[5:7])}/{int(d[8:10])}"} for i, d in enumerate(dates)]
-        out[aid] = {"dots": dots, "history": [], "title": f"Last {len(dates)} Games Played"}
+                  "label": md(d)} for i, d in enumerate(dates)]
+        # In the offseason/preseason the window is last season's final stretch -- say so, so a row of
+        # red dots can't be read as "hasn't played this season / is out right now".
+        stale = (today - datetime.date.fromisoformat(dates[-1])).days > 21
+        s = season_of(dates[-1])
+        season_lbl = f"{s - 1}-{str(s)[2:]}"
+        title =f"Last {len(dates)} Games of {season_lbl}" if stale else f"Last {len(dates)} Games Played"
+        streak = 0
+        for d in reversed(dates):
+            if d in p_played:
+                break
+            streak += 1
+        note = None
+        if streak >= 3:
+            with_team = p_played & set(team_dates)
+            if with_team:
+                last = max(with_team)
+                gone = sum(1 for d in team_dates if d > last)
+                note = f"Last played {md(last)} -- missed the team's last {gone} games."
+            else:
+                note = "No games on record with this team yet."
+            if stale:
+                note += f" That's the end of the {season_lbl} season; no games have been played since."
+        out[aid] = {"dots": dots, "history": [], "title": title, "note": note}
     return out
 
 
@@ -518,13 +576,18 @@ def load_current_rosters(games):
 
 
 def build_board():
-    print("NBA: fetching last season's history (2025-26)...")
-    df = load_history(LAST_SEASON)
-    if df.empty:
+    print(f"NBA: fetching history (prior season {LAST_SEASON}, current season {CUR_SEASON})...")
+    frames = [f for f in (load_history(LAST_SEASON), load_history(CUR_SEASON)) if not f.empty]
+    if not frames:
         print("NBA: no history rows, skipping.")
         return {"season": LAST_SEASON, "games": [], "props": [], "dvp": {}, "recent": {}, "built": time.time()}
+    df = pd.concat(frames, ignore_index=True)
     df["sw"] = df.date.str[:10]      # sortable date key, since NBA has no "week"
     df = df.sort_values(["sw"]).reset_index(drop=True)
+    # The board's season is the newest one that has a finished game. It flips to the new season
+    # automatically the first time a current-season game is in the history (and stays on last
+    # season's label until then, so nothing changes in the meantime).
+    SEASON = max(season_of(d) for d in df.sw.unique())
     ranks, dvp = defense_ranks(df)
 
     print("NBA: fetching upcoming schedule...")
@@ -581,11 +644,12 @@ def build_board():
                         "market": mkey, "label": label,
                         "est": est, "line": est, "src": "est", "over": None, "under": None,
                         "books": [], "inj": None, "opp_rank": rk,
-                        # NBA has no "week" -- LAST_SEASON used uniformly for every game since an NBA
-                        # season spans two calendar years (games in both 2025 and 2026 are "season 2026"
-                        # by ESPN's own label); using the game date's raw year would wrongly split one
-                        # season's games across two season-buckets in the frontend's window-tab filters
-                        "log": [[LAST_SEASON, 1, r.opp, float(getattr(r, mkey)), r.sw,
+                        # NBA has no "week" -- each game is tagged with its ESPN season label via
+                        # season_of() since an NBA season spans two calendar years (games in both 2025
+                        # and 2026 are "season 2026"); using the game date's raw year would wrongly
+                        # split one season's games across two season-buckets in the frontend's
+                        # window-tab filters
+                        "log": [[season_of(r.sw), 1, r.opp, float(getattr(r, mkey)), r.sw,
                                  1 if r.team == g["home"] else (0 if r.team == g["away"] else None),
                                  None, None] for r in hl.itertuples()],
                         "vol": round(float(recent_min), 1),
@@ -616,7 +680,7 @@ def build_board():
                     game_rows = grp[grp.game_id == row.game_id]
                     off_team = game_rows.team.iloc[0] if len(game_rows) else ""
                     top = game_rows.loc[game_rows[mkey].idxmax()] if len(game_rows) else None
-                    entries.append([LAST_SEASON, 1, off_team, round(float(row.total), 1),
+                    entries.append([season_of(row.sw), 1, off_team, round(float(row.total), 1),
                                      top["name"] if top is not None else "",
                                      round(float(top[mkey]), 1) if top is not None else 0])
                 recent[f"{def_team}|{pos}|{mkey}"] = entries
@@ -633,7 +697,7 @@ def build_board():
                 recent_players[f"{def_team}|{pos}|{mkey}"] = [
                     [x.name, x.team, round(float(getattr(x, mkey)), 1), x.sw] for x in rows_rp.itertuples()]
 
-    board = {"season": LAST_SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
+    board = {"season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
              "recent_players": recent_players,
              "inj_week": 0, "built": time.time(), "has_key": bool(load_sgo_key()),
              "odds_pulled": sgo.get("pulled"), "odds_remaining": None}
