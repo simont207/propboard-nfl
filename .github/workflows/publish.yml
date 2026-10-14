@@ -24,6 +24,10 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     env:
+      # SITE OFFLINE at Simon's request (2026-10-13). Any past timestamp makes build_static.py publish the
+      # "offline" page instead of the site (and skip the odds pull). To bring the site back, delete this
+      # TAKEDOWN_AT line and push.
+      TAKEDOWN_AT: "2026-10-01T00:00:00Z"
       # Only set on the once-daily 13:00 UTC run or a manual dispatch — never on every push, or on the
       # 3-hourly runs, which would blow past the free tier's monthly credit budget.
       SGO_API_KEY: ${{ (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 13 * * *') && secrets.SGO_API_KEY || '' }}
