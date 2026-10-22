@@ -10,6 +10,7 @@ import datetime
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import app
@@ -110,3 +111,7 @@ try:
               f"{(out / 'board_nhl.json').stat().st_size // 1024} KB of data.")
 except Exception as e:
     print(f"NHL build failed, leaving the rest of the site unaffected: {e}")
+
+# Small freshness stamp the publish workflow's hourly "is the live data stale?" check reads (a full
+# board.json is ~40 MB, far too big to download hourly just to learn when it was built).
+(out / "built.json").write_text(json.dumps({"built": time.time()}))

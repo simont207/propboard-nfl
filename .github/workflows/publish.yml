@@ -1,11 +1,16 @@
 name: Publish PropBoard
 
-# Rebuilds the site every 3 hours (and whenever the code changes, or when you click "Run workflow").
-# The 13:00 UTC run (and any manual "Run workflow" click) also pulls real SportsGameOdds lines — once a
-# day keeps it well under the free tier's 2,500-credit/month budget; the other 3-hourly runs stay EST-only.
+# Keeps the data fresh about every 3 hours (and rebuilds whenever the code changes, or when you click
+# "Run workflow"). GitHub treats scheduled runs as best effort -- it routinely delays or drops them -- so
+# instead of one trigger every 3 hours, a cheap trigger fires every hour and the `check` job below only
+# lets a full build start once the live data is at least 2.5 hours old. That lands a build about every 3
+# hours when GitHub is healthy, and a dropped trigger is made up for by the next hourly one.
+# The 13:00 UTC run (and any manual "Run workflow" click) always builds AND pulls real SportsGameOdds
+# lines -- once a day keeps it near the free tier's 2,500-credit/month budget; every other build stays
+# on the cached lines and never touches the odds key.
 on:
   schedule:
-    - cron: "0 */3 * * *"
+    - cron: "17 * * * *"
     - cron: "0 13 * * *"
   push:
     branches: [main]
@@ -16,12 +21,42 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.age.outputs.build }}
+    steps:
+      - id: age
+        env:
+          EVENT: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+          URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/built.json
+        run: |
+          # Pushes, manual runs and the daily odds run always build. An hourly trigger builds only when
+          # the live site's data is stale; if the live age can't be read for any reason, build anyway.
+          if [ "$EVENT" != "schedule" ] || [ "$CRON" = "0 13 * * *" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          age=$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "$URL" 2>/dev/null \
+                | python3 -c "import json,sys,time; print(int(time.time() - json.load(sys.stdin)['built']))" 2>/dev/null \
+                || echo 999999)
+          echo "live data is ${age}s old"
+          if [ "$age" -ge 9000 ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Fresh enough (under 2.5h) -- skipping this hourly trigger."
+          fi
+
   build-and-deploy:
+    needs: check
+    # Build unless the check explicitly said not to (so a failed check can never silently stop builds).
+    if: ${{ !cancelled() && needs.check.outputs.build != 'false' }}
+    concurrency:
+      group: pages
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     env:
       # Only set on the once-daily 13:00 UTC run or a manual dispatch — never on every push, or on the
