@@ -34,6 +34,7 @@ ESPN_PATH = "apis/site/v2/sports/football/college-football"
 HTTP = {"User-Agent": "Mozilla/5.0 PropBoard"}
 FBS = 80             # ESPN's "group" id for FBS (skips FCS-only games)
 HIST_WEEKS = 6        # how many of the most recent completed weeks to build history from
+HISTORY_VERSION = 1   # bump when parse_boxscore's output changes, so previously saved tables are ignored
 PRIOR_SEASON_WEEKS = 16   # regular season only (through conf championships) -- bowl-season rosters/
                           # motivation are too different from the regular-season sample we want, same
                           # reasoning nba.py already uses to exclude playoffs from its own history
@@ -178,30 +179,52 @@ def parse_boxscore(summary):
     return out
 
 
-def load_history(season, current_week, max_weeks=HIST_WEEKS):
+def load_history(season, current_week, max_weeks=HIST_WEEKS, complete=False):
     """Every FBS box score from the last `max_weeks` completed weeks of `season` (cached forever per
     game). Tags each row with `season` explicitly -- once build_board() concatenates this with a prior
     season's full history, nothing downstream can tell them apart by week number alone (week 3 of a new
-    season and week 3 of last season are both just "3")."""
-    rows = []
+    season and week 3 of last season are both just "3").
+
+    `complete=True` is for a season that is over: its parsed table never changes, so it is saved once
+    (only if every week and game loaded) and reloaded in a fraction of a second instead of re-reading
+    ~1,300 saved box scores on every build."""
     start = max(1, current_week - max_weeks)
+    cache = DATA / f"history_v{HISTORY_VERSION}_{season}_w{start}-{current_week}.parquet"
+    if complete and cache.exists():
+        try:
+            return pd.read_parquet(cache)
+        except Exception as e:
+            print(f"  history cache unreadable, rebuilding it: {e}")
+    rows = []
+    all_loaded = True
     for wk in range(start, current_week):
         try:
             sb = scoreboard(week=wk, season=season)
         except Exception as e:
             print(f"week {wk} scoreboard failed: {e}")
+            all_loaded = False
             continue
         ids = [e["id"] for e in sb.get("events", [])
                if e["competitions"][0]["status"]["type"]["state"] == "post"]
         print(f"  week {wk}: {len(ids)} completed games")
         for gid in ids:
+            on_disk = (GAMES_DIR / f"{gid}.json").exists()
             s = game_summary(gid)
             if s:
                 for row in parse_boxscore(s):
                     row["season"] = season
                     rows.append(row)
-            time.sleep(0.05)
-    return pd.DataFrame(rows)
+            else:
+                all_loaded = False
+            if not on_disk:
+                time.sleep(0.05)       # be polite to ESPN -- only matters when we actually asked it for something
+    df = pd.DataFrame(rows)
+    if complete and all_loaded and not df.empty:
+        try:
+            df.to_parquet(cache)
+        except Exception as e:
+            print(f"  could not save the history cache: {e}")
+    return df
 
 
 # ------------------------------------------------------------------ board ---
@@ -479,7 +502,7 @@ def build_board():
     # real streaks or a stable defense read. Cached forever per game (same as the current-season fetch
     # above), so this is a one-time cost the first time this runs, not a recurring one.
     print(f"NCAAF: fetching {season - 1}'s full regular season for history depth...")
-    prior = load_history(season - 1, PRIOR_SEASON_WEEKS + 1, max_weeks=PRIOR_SEASON_WEEKS)
+    prior = load_history(season - 1, PRIOR_SEASON_WEEKS + 1, max_weeks=PRIOR_SEASON_WEEKS, complete=True)
     df = pd.concat([prior, df], ignore_index=True)
     if df.empty:
         print("NCAAF: no history rows, skipping.")
@@ -509,11 +532,16 @@ def build_board():
         print(f"NCAAF: season timeline failed, leaving it empty: {e}")
         timelines = {}
     rows = []
+    # Each player's history, grouped once and cut down to the columns this loop reads (the old code filtered
+    # the whole wide table again for every player x game, and ran itertuples on the full-width slices).
+    loop_cols = list(dict.fromkeys(["season", "week", "opp", "date", "team", *MARKETS, *VOL_COL.values()]))
+    hist_by_player = {key: grp[loop_cols] for key, grp in df.groupby(["athlete_id", "team"], sort=False)}
+    no_history = df.iloc[0:0][loop_cols]
     for g in games:
         for team, opp in ((g["home"], g["away"]), (g["away"], g["home"])):
             cand = latest[latest.team == team]
             for aid, p in cand.iterrows():
-                hist = df[(df.athlete_id == aid) & (df.team == team)]
+                hist = hist_by_player.get((aid, team), no_history)
                 pos = p.pos
                 # No volume floor -- every position-eligible player gets every market regardless of
                 # recent usage, matching the NFL site's identical call (Simon: "remove it entirely,
@@ -537,7 +565,7 @@ def build_board():
                         "books": [], "inj": None, "opp_rank": rk,
                         "log": [[int(r.season), int(r.week), r.opp, float(getattr(r, mkey)), r.date[:10],
                                  1 if r.team == g["home"] else (0 if r.team == g["away"] else None),
-                                 None, None] for r in hl.itertuples()],
+                                 None, None] for r in hl[["season", "week", "opp", "date", "team", mkey]].itertuples()],
                         "vol": round(float(vol), 1),
                         "opp_rest": rest.get((opp, g["id"])),
                         "timeline": timelines.get(aid),
@@ -546,7 +574,7 @@ def build_board():
     recent = {}
     for mkey, (_, positions, _) in MARKETS.items():
         for pos in positions:
-            sub = df[df.pos == pos]
+            sub = df.loc[df.pos == pos, ["opp", "game_id", "season", "week", "team", "name", mkey]]
             for def_team, grp in sub.groupby("opp"):
                 byweek = (grp.groupby(["game_id", "season", "week"]).agg(total=(mkey, "sum"))
                           .reset_index().sort_values(["season", "week"]))
@@ -566,7 +594,7 @@ def build_board():
     recent_players = {}
     for mkey, (_, positions, _) in MARKETS.items():
         for pos in positions:
-            sub = df[df.pos == pos].sort_values(["season", "week"])
+            sub = df.loc[df.pos == pos, ["opp", "season", "week", "name", "team", "date", mkey]].sort_values(["season", "week"])
             for def_team, grp in sub.groupby("opp"):
                 rows_rp = grp.tail(8).iloc[::-1]
                 recent_players[f"{def_team}|{pos}|{mkey}"] = [
