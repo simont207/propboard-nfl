@@ -382,9 +382,9 @@ def apply_line(row, sg, td_markets, ev_pct):
     row["best_under"] = best_book_price(row["books"], "under")
 
 
-def reapply(board, sgo, norm, td_markets, ev_pct, line_hist=None):
+def reapply(board, sgo, norm, td_markets, ev_pct, line_hist=None, injuries=None):
     """Re-apply freshly pulled lines to an already-built board in place (well under a second), instead of
-    rebuilding it from scratch. Rows with a fixed line (src 'fixed', e.g. the Q1 5+ yards markets) are left
+    rebuilding it from scratch (injury status too, when an injury map is given). Rows with a fixed line (src 'fixed', e.g. the Q1 5+ yards markets) are left
     alone."""
     for row in board["props"]:
         if row.get("src") not in ("est", "book"):
@@ -394,5 +394,50 @@ def reapply(board, sgo, norm, td_markets, ev_pct, line_hist=None):
         apply_line(row, sgo["lines"].get(key), td_markets, ev_pct)
         if line_hist is not None:
             row["line_history"] = line_hist.get(key)
+        if injuries is not None:
+            inj = injuries.get(str(row.get("pid")))
+            row["inj"], row["inj_note"] = (inj["status"], inj["note"]) if inj else (None, None)
     board["odds_pulled"] = sgo.get("pulled")
     board["proline_pulled"] = sgo.get("proline_pulled")
+
+
+# ----------------------------------------------------------------------- injuries ---
+# ESPN's injury report, relayed by Prop-Line (free, refreshed every ~10 min, carries ESPN's own athlete id --
+# the same id the NBA and NHL boards use). Mapped onto the three tags the page already understands.
+INJURY_TAG = {"out": "Out", "injured_list": "Out", "suspended": "Out",
+              "doubtful": "Doubtful", "questionable": "Questionable", "day_to_day": "Questionable"}
+INJURIES_MAX_AGE = 24 * 3600
+
+
+def _injury_note(p):
+    what = (p.get("injury_type") or "").strip()
+    if p.get("detail"):
+        what = f"{what} ({p['detail'].strip()})" if what else p["detail"].strip()
+    bits = [what or "injury"]
+    if p.get("expected_return"):
+        bits.append(f"expected back {p['expected_return']}")
+    return ", ".join(bits)
+
+
+def pull_injuries(sport_key, key=None):
+    """One request. -> {"pulled", "players": {espn_athlete_id: {"status", "note", "name", "team"}}}"""
+    key = key or load_key()
+    if not key:
+        raise RuntimeError("No Prop-Line key found at data/proline_key.txt.")
+    data, headers = _get(f"/sports/{sport_key}/injuries", key)
+    players = {}
+    for p in data.get("players", []):
+        tag = INJURY_TAG.get(p.get("status_code"))
+        aid = p.get("espn_athlete_id")
+        if tag and aid:
+            players[str(aid)] = {"status": tag, "note": _injury_note(p), "name": p.get("player_name"),
+                                 "team": p.get("team_abbr")}
+    return {"pulled": time.time(), "players": players, "requests": 1, "remaining": headers.get("x-daily-remaining")}
+
+
+def load_injuries(path, now=None):
+    """Current injury map from the saved report, or {} if it's missing or older than a day."""
+    d = _read(path) or {}
+    if not d.get("pulled") or (now or time.time()) - d["pulled"] > INJURIES_MAX_AGE:
+        return {}
+    return d.get("players") or {}

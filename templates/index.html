@@ -1275,7 +1275,7 @@ function buildSummary(p, o) {
     if (idx === 0) parts.push(`He leads ${esc(p.team)}'s ${esc(posName)} in touches, averaging ${usage[0][1]} over his last 6 games (next closest: ${esc(usage[1][0])} at ${usage[1][1]}).`);
     else if (idx > 0) parts.push(`He's ${ord(idx + 1)} on ${esc(p.team)} in touches among ${esc(posName)} (${usage[idx][1]}/game), behind ${esc(usage[0][0])} (${usage[0][1]}).`);
   }
-  if (p.inj) parts.push(`Listed as ${esc(p.inj)} on the injury report for this game.`);
+  if (p.inj) parts.push(`Listed as ${esc(p.inj)} on the injury report for this game${p.inj_note ? ` (${esc(p.inj_note)})` : ''}.`);
   return parts.join(' ');
 }
 
@@ -1917,6 +1917,7 @@ function topPropsForGame(gameId, limit = 3) {
   board.props.filter(p => p.game === gameId).forEach(p => {
     if (TRIVIAL_STREAK_MARKETS.has(p.market)) return;
     if (p.market === 'xp_made_m') return; // kicker extra points: Simon never wants these in Top Props
+    if (p.inj === 'Out' || p.inj === 'Doubtful') return; // never recommend a player who is ruled out
     const line = lineFor(p);
     let side = null, score = null, tag = null;
     if (p.ev_over != null && p.ev_over > 0 && (p.ev_under == null || p.ev_over >= p.ev_under)) {

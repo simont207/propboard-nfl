@@ -41,6 +41,7 @@ def season_of(date_str):
     return y + 1 if m >= 8 else y
 
 
+HISTORY_VERSION = 1      # bump when parse_boxscore's output changes, so old saved tables are ignored
 CUR_SEASON = season_of(datetime.date.today().isoformat())   # in progress, or about to start (new season is "current" from August)
 LAST_SEASON = CUR_SEASON - 1                                # the prior, completed season
 
@@ -381,6 +382,15 @@ def load_history(season_year, max_days=None):
     """Every regular-season box score from `season_year` (preseason/playoffs excluded -- different
     rotations and opponent dynamics than the regular-season sample we want). Cached forever per
     completed game, so a rebuild only fetches games that are genuinely new since last time."""
+    # A finished season never changes, so its parsed table is saved once and reloaded in a fraction of a
+    # second instead of re-walking ~226 scoreboard days and ~1,300 box scores on every build (that was ~150s).
+    cache = DATA / f"history_v{HISTORY_VERSION}_{season_year}.parquet"
+    complete = season_year < CUR_SEASON and not max_days
+    if complete and cache.exists():
+        try:
+            return pd.read_parquet(cache)
+        except Exception as e:
+            print(f"  history cache unreadable, rebuilding it: {e}")
     days = season_game_days(season_year)
     if season_year >= CUR_SEASON:
         # in-progress season: its calendar lists the whole schedule, but only days up to today can have
@@ -390,11 +400,13 @@ def load_history(season_year, max_days=None):
     if max_days:
         days = days[:max_days]
     rows = []
+    complete_ok = True       # only cache the season if every day and every game loaded
     for i, day in enumerate(days):
         try:
             sb = scoreboard(date=day)
         except Exception as e:
             print(f"  {day}: scoreboard failed: {e}")
+            complete_ok = False
             continue
         ids = [e["id"] for e in sb.get("events", [])
                if e["competitions"][0]["status"]["type"]["state"] == "post"
@@ -406,8 +418,16 @@ def load_history(season_year, max_days=None):
             s = game_summary(gid)
             if s:
                 rows.extend(parse_boxscore(s))
+            else:
+                complete_ok = False
             time.sleep(0.05)
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    if complete and complete_ok and not df.empty:
+        try:
+            df.to_parquet(cache)
+        except Exception as e:
+            print(f"  could not save the history cache: {e}")
+    return df
 
 
 # ------------------------------------------------------------------------ board ---
@@ -576,6 +596,7 @@ def load_current_rosters(games):
 
 
 PROLINE_FILE = DATA / "proline_odds.json"
+INJURIES_FILE = DATA / "proline_injuries.json"
 PROLINE_MARKETS = {
     "player_points": "pts", "player_rebounds": "reb", "player_assists": "ast", "player_threes": "fg3m",
     "player_steals": "stl", "player_blocks": "blk", "player_turnovers": "to", "player_points_assists": "pa",
@@ -589,12 +610,20 @@ def pull_proline(games=None):
     out = proline.pull("basketball_nba", games or upcoming_games(), PROLINE_MARKETS, TD_MARKETS, norm_name)
     record_line_history(out["lines"])
     PROLINE_FILE.write_text(json.dumps(out))
+    try:
+        inj = proline.pull_injuries("basketball_nba")
+        INJURIES_FILE.write_text(json.dumps(inj))
+        out["injuries"] = len(inj["players"])
+        out["requests"] += inj["requests"]
+    except Exception as e:
+        print(f"  injury pull failed: {e}")
     return out
 
 
 def reapply_lines(board):
     """Refresh a cached board's lines in place after a new pull (no rebuild)."""
-    proline.reapply(board, load_sgo(), norm_name, TD_MARKETS, ev_pct, load_line_history())
+    proline.reapply(board, load_sgo(), norm_name, TD_MARKETS, ev_pct, load_line_history(),
+                     injuries=proline.load_injuries(INJURIES_FILE))
     board["has_proline_key"] = bool(proline.load_key())
 
 
@@ -656,23 +685,48 @@ def build_board():
             print(f"NBA: dropping {len(stale)} players no longer on their team's current roster")
             latest = latest.drop(index=stale)
     timelines = load_recent_participation(df, latest)
+    inj_map = proline.load_injuries(INJURIES_FILE)
     rows = []
+    # Each player's last-20 history, recent minutes and per-market values/estimates are prepared ONCE and
+    # reused for every game he plays in (the old loop re-sliced the whole table and called itertuples on a
+    # ~40-column frame for every player x market x game, ~66,000 times).
+    player_cache = {}
+
+    def player_data(aid, markets):
+        c = player_cache.get(aid)
+        if c is None:
+            hist = df[df.athlete_id == aid]
+            hl = hist.tail(20)
+            c = player_cache[aid] = {"recent_min": hist.minutes.tail(8).mean(), "empty": hl.empty, "hl": hl,
+                                    "vals": {}, "est": {}}
+            if not hl.empty:
+                c["opp"], c["team"], c["sw"] = hl.opp.tolist(), hl.team.tolist(), hl.sw.tolist()
+                c["season"] = [season_of(d) for d in c["sw"]]
+        if not c["empty"]:
+            for m in markets:
+                if m not in c["vals"]:
+                    c["vals"][m] = [float(v) for v in c["hl"][m].tolist()]
+                    c["est"][m] = 0.5 if m in TD_MARKETS else float(int(c["hl"][m].tail(8).mean())) + 0.5
+        return c
+
     for g in games:
         for team, opp in ((g["home"], g["away"]), (g["away"], g["home"])):
             cand = latest[latest.team == team]
             for aid, p in cand.iterrows():
-                hist = df[df.athlete_id == aid]
                 pos = p.pos
-                recent_min = hist.minutes.tail(8).mean()
+
+                pdata = player_data(aid, MARKETS)
+                recent_min = pdata["recent_min"]
+                if pdata["empty"]:
+                    continue
+                n_log = len(pdata["sw"])
                 # No volume floor -- every player gets every market regardless of recent playing time,
                 # matching the NFL site's identical call (Simon: "remove it entirely, show every
                 # player"). `recent_min` is still computed and stored as `vol` below for display/
                 # sorting; it just no longer gates whether a prop appears at all.
                 for mkey, (label, vmin) in MARKETS.items():
-                    hl = hist.tail(20)
-                    if hl.empty:
-                        continue
-                    est = 0.5 if mkey in TD_MARKETS else float(int(hl[mkey].tail(8).mean())) + 0.5
+                    est = pdata["est"][mkey]
+                    vals = pdata["vals"][mkey]
                     rk = ranks.get((opp, pos, mkey))
                     row = {
                         "id": f"{aid}|{mkey}|{g['id']}", "pid": aid, "player": p["name"],
@@ -680,15 +734,13 @@ def build_board():
                         "game": g["id"], "img": p.headshot if isinstance(p.headshot, str) else None,
                         "market": mkey, "label": label,
                         "est": est, "line": est, "src": "est", "over": None, "under": None,
-                        "books": [], "inj": None, "opp_rank": rk,
-                        # NBA has no "week" -- each game is tagged with its ESPN season label via
-                        # season_of() since an NBA season spans two calendar years (games in both 2025
-                        # and 2026 are "season 2026"); using the game date's raw year would wrongly
-                        # split one season's games across two season-buckets in the frontend's
-                        # window-tab filters
-                        "log": [[season_of(r.sw), 1, r.opp, float(getattr(r, mkey)), r.sw,
-                                 1 if r.team == g["home"] else (0 if r.team == g["away"] else None),
-                                 None, None] for r in hl.itertuples()],
+                        "books": [], "inj": (inj_map.get(str(aid)) or {}).get("status"), "inj_note": (inj_map.get(str(aid)) or {}).get("note"), "opp_rank": rk,
+                        # Each game is tagged with its ESPN season label via season_of(), not the raw
+                        # calendar year -- a season spans two calendar years, so the raw year would wrongly
+                        # split one season's games across two season-buckets in the frontend's window tabs
+                        "log": [[pdata["season"][i], 1, pdata["opp"][i], vals[i], pdata["sw"][i],
+                                 1 if pdata["team"][i] == g["home"] else (0 if pdata["team"][i] == g["away"] else None),
+                                 None, None] for i in range(n_log)],
                         "vol": round(float(recent_min), 1),
                         "ev_over": None, "ev_under": None, "fair_line": None, "real_alts": [],
                         "line_history": line_hist.get(f"{norm_name(p['name'])}|{mkey}|{g['id']}"),
