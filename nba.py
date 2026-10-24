@@ -618,6 +618,20 @@ def build_board():
         if fallback:
             fb = pd.DataFrame(fallback).set_index("athlete_id")
             latest = pd.concat([latest[~latest.index.isin(fb.index)], fb])
+        # The bootstrap above only ever ADDS or MOVES players. Anyone who left over the summer (waived,
+        # cut, unsigned, overseas) still has a last box score under his old team, so he kept getting props
+        # for every upcoming game -- 143 such players were on the live board, inflating some teams to 25
+        # players against a real 17. ESPN's roster is the source of truth for who is on a team NOW, so a
+        # player ESPN doesn't list is dropped. Only for teams whose roster loaded with a sane size, so a
+        # failed or partial fetch for one team can never wipe that team's players.
+        roster_sizes = {}
+        for r in roster.values():
+            roster_sizes[r["team"]] = roster_sizes.get(r["team"], 0) + 1
+        trusted = {t for t, n in roster_sizes.items() if n >= 10}
+        stale = [aid for aid, p in latest.iterrows() if p.team in trusted and aid not in roster]
+        if stale:
+            print(f"NBA: dropping {len(stale)} players no longer on their team's current roster")
+            latest = latest.drop(index=stale)
     timelines = load_recent_participation(df, latest)
     rows = []
     for g in games:
