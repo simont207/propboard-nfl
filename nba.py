@@ -23,6 +23,8 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+import proline
+
 BASE = Path(__file__).parent
 DATA = BASE / "data" / "nba"
 GAMES_DIR = DATA / "games"
@@ -98,10 +100,8 @@ def load_sgo_key():
 
 
 def load_sgo():
-    try:
-        return json.loads(SGO_FILE.read_text())
-    except Exception:
-        return {"pulled": None, "remaining": None, "lines": {}}
+    """Real lines: Prop-Line first, SportsGameOdds as the fallback (see proline.load_merged)."""
+    return proline.load_merged(SGO_FILE, PROLINE_FILE)
 
 
 def _sgo_american(s):
@@ -575,6 +575,29 @@ def load_current_rosters(games):
     return out
 
 
+PROLINE_FILE = DATA / "proline_odds.json"
+PROLINE_MARKETS = {
+    "player_points": "pts", "player_rebounds": "reb", "player_assists": "ast", "player_threes": "fg3m",
+    "player_steals": "stl", "player_blocks": "blk", "player_turnovers": "to", "player_points_assists": "pa",
+    "player_points_rebounds": "pr", "player_points_rebounds_assists": "pra", "player_rebounds_assists": "ra",
+    "player_blocks_steals": "stocks", "player_double_double": "dd", "player_triple_double": "td",
+}
+
+
+def pull_proline(games=None):
+    """One bulk request returns every NBA game's props -- see proline.py."""
+    out = proline.pull("basketball_nba", games or upcoming_games(), PROLINE_MARKETS, TD_MARKETS, norm_name)
+    record_line_history(out["lines"])
+    PROLINE_FILE.write_text(json.dumps(out))
+    return out
+
+
+def reapply_lines(board):
+    """Refresh a cached board's lines in place after a new pull (no rebuild)."""
+    proline.reapply(board, load_sgo(), norm_name, TD_MARKETS, ev_pct, load_line_history())
+    board["has_proline_key"] = bool(proline.load_key())
+
+
 def build_board():
     print(f"NBA: fetching history (prior season {LAST_SEASON}, current season {CUR_SEASON})...")
     frames = [f for f in (load_history(LAST_SEASON), load_history(CUR_SEASON)) if not f.empty]
@@ -672,15 +695,7 @@ def build_board():
                         "opp_rest": rest.get((opp, g["id"])),
                         "timeline": timelines.get(aid),
                     }
-                    sg = sgo["lines"].get(f"{norm_name(p['name'])}|{mkey}|{g['id']}")
-                    if sg and sg["books"]:
-                        line = sg["line"] if sg["line"] is not None else est
-                        row.update(line=line, src="book", over=sg["over"], under=sg["under"], books=sg["books"])
-                        comparable = mkey in TD_MARKETS or (sg["fair_line"] is not None and abs(line - sg["fair_line"]) <= 1.0)
-                        if comparable:
-                            row["ev_over"] = ev_pct(sg["over"], sg["fair_over"])
-                            row["ev_under"] = ev_pct(sg["under"], sg["fair_under"])
-                        row["fair_line"] = sg["fair_line"]
+                    proline.apply_line(row, sgo["lines"].get(f"{norm_name(p['name'])}|{mkey}|{g['id']}"), TD_MARKETS, ev_pct)
                     rows.append(row)
 
     recent = {}
@@ -714,7 +729,8 @@ def build_board():
     board = {"season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
              "recent_players": recent_players,
              "inj_week": 0, "built": time.time(), "has_key": bool(load_sgo_key()),
-             "odds_pulled": sgo.get("pulled"), "odds_remaining": None}
+             "odds_pulled": sgo.get("pulled"), "odds_remaining": None,
+             "has_proline_key": bool(proline.load_key()), "proline_pulled": sgo.get("proline_pulled")}
     return _clean_nans(board)
 
 

@@ -15,6 +15,8 @@ import pandas as pd
 import requests
 from flask import Flask, jsonify, render_template, request
 
+import proline
+
 BASE = Path(__file__).parent
 DATA = BASE / "data"
 DATA.mkdir(exist_ok=True)
@@ -820,10 +822,8 @@ def load_sgo_key():
 
 
 def load_sgo():
-    try:
-        return json.loads(SGO_FILE.read_text())
-    except Exception:
-        return {"pulled": None, "remaining": None, "lines": {}}
+    """Real lines: Prop-Line first, SportsGameOdds as the fallback (see proline.load_merged)."""
+    return proline.load_merged(SGO_FILE, PROLINE_FILE)
 
 
 def _sgo_american(s):
@@ -1512,6 +1512,36 @@ def q1_tiers(df, games, inj_latest):
     return result
 
 
+PROLINE_FILE = DATA / "proline_odds.json"
+PROLINE_MARKETS = {
+    "player_pass_yds": "pass_yds", "player_pass_tds": "pass_tds", "player_pass_interceptions": "pass_int",
+    "player_pass_completions": "pass_comp", "player_pass_attempts": "pass_att", "player_longest_completion": "long_pass",
+    "player_rush_yds": "rush_yds", "player_rush_attempts": "rush_att", "player_rush_longest": "long_rush",
+    "player_reception_yds": "rec_yds", "player_receptions": "rec", "player_reception_longest": "long_rec",
+    "player_pass_rush_yds": "pass_rush_yds", "player_rush_reception_yds": "rush_rec_yds", "player_anytime_td": "any_td",
+    "player_sacks": "sacks", "player_field_goals_made": "fg_made_m", "player_extra_points_made": "xp_made_m",
+    "player_kicking_points": "kick_pts", "player_solo_tackles": "tackles", "player_tackles_assists": "tackles_ast",
+    "player_assists": "assists",
+}
+PROLINE_Q1 = {"player_pass_yds": "q1_pass_yds", "player_rush_yds": "q1_rush_yds",
+              "player_reception_yds": "q1_rec_yds", "player_anytime_td": "q1_any_td"}
+
+
+def pull_proline(games=None):
+    """One bulk request per sport (+1 for first-quarter props) -- see proline.py."""
+    out = proline.pull("football_nfl", games or get_games(), PROLINE_MARKETS, TD_MARKETS, norm_name,
+                       period_map=PROLINE_Q1)
+    record_line_history(out["lines"])
+    PROLINE_FILE.write_text(json.dumps(out))
+    return out
+
+
+def reapply_lines(board):
+    """Refresh a cached board's lines in place after a new pull (no rebuild)."""
+    proline.reapply(board, load_sgo(), norm_name, TD_MARKETS, ev_pct, load_line_history())
+    board["has_proline_key"] = bool(proline.load_key())
+
+
 def build_board():
     df = load_stats()
     games = get_games()
@@ -1674,33 +1704,7 @@ def build_board():
                         row.update(line=books[0]["line"], src="book", over=books[0].get("over"),
                                    under=books[0].get("under"), books=books)
 
-                    sg = sgo["lines"].get(f"{norm_name(p.player_display_name)}|{mkey}|{g['id']}")
-                    if sg and sg["books"]:
-                        line = sg["line"] if sg["line"] is not None else est
-                        row.update(line=line, src="book", over=sg["over"], under=sg["under"], books=sg["books"])
-                        # EV only where the book's own line is close enough to the fair line that comparing
-                        # their odds head-to-head is a fair apples-to-apples read (a TD_MARKETS prop has no
-                        # numeric line at all, so it's always comparable). A big gap means different props.
-                        # A flat 1.0 absolute gap isn't tight enough for low-count markets (pass TDs, sacks,
-                        # FGs made): a 0.5-1.0 gap there is most of the market's whole scale, not noise, so
-                        # also require the gap to be a modest fraction of the fair line's own size.
-                        fair_line = sg["fair_line"]
-                        gap = abs(line - fair_line) if fair_line is not None else None
-                        comparable = mkey in TD_MARKETS or (
-                            gap is not None and gap <= 1.0 and gap <= max(abs(fair_line), 1.0) / 3
-                        )
-                        if comparable:
-                            row["ev_over"] = ev_pct(sg["over"], sg["fair_over"])
-                            row["ev_under"] = ev_pct(sg["under"], sg["fair_under"])
-                        row["fair_line"] = sg["fair_line"]
-                        row["real_alts"] = [{"t": a["t"], "over_odds": a.get("over", {}).get("odds"),
-                                              "over_book": a.get("over", {}).get("book")}
-                                             for a in sg["alts"] if a.get("over")]
-                    if row["books"]:
-                        row["best_over"] = best_book_price(row["books"], "over")
-                        row["best_under"] = best_book_price(row["books"], "under")
-                    else:
-                        row["best_over"] = row["best_under"] = None
+                    proline.apply_line(row, sgo["lines"].get(f"{norm_name(p.player_display_name)}|{mkey}|{g['id']}"), TD_MARKETS, ev_pct)
                     rows.append(row)
 
     return {
@@ -1711,11 +1715,55 @@ def build_board():
         "has_key": bool(load_config().get("odds_key")),
         "odds_pulled": odds["pulled"], "odds_remaining": odds["remaining"],
         "has_sgo_key": bool(load_sgo_key()), "sgo_pulled": sgo["pulled"],
+        "has_proline_key": bool(proline.load_key()), "proline_pulled": sgo.get("proline_pulled"),
         "inj_week": inj_week, "built": time.time(),
     }
 
 
+_pl_lock = threading.Lock()
+_pl_state = {"t": 0, "info": None}
+PROLINE_REFRESH_S = 1800     # automatic pulls happen at most every 30 minutes
+
+
+def refresh_proline(force=False):
+    """Pull fresh real lines for NFL, NBA and NHL from Prop-Line (about 4 of the free 1,000 requests a
+    day). Throttled so reloading the page can't burn the allowance, and one sport failing never blocks the
+    others or the board itself. Returns None when no key is saved."""
+    if not proline.load_key():
+        return None
+    try:
+        return _refresh_proline(force)
+    except Exception as e:      # lines are a bonus: a problem here must never take the boards down
+        print(f"  Prop-Line refresh failed: {e}")
+        return {"error": str(e)}
+
+
+def _refresh_proline(force):
+    with _pl_lock:
+        if not force and time.time() - _pl_state["t"] < PROLINE_REFRESH_S:
+            return _pl_state["info"]
+        import nba
+        import nhl
+        info = {}
+        for name, fn in (("nfl", pull_proline), ("nba", nba.pull_proline), ("nhl", nhl.pull_proline)):
+            try:
+                out = fn()
+                info[name] = {"events": out["events"], "lines": len(out["lines"]),
+                              "requests": out["requests"], "remaining": out["remaining"]}
+            except Exception as e:
+                info[name] = {"error": str(e)}
+        _pl_state.update(t=time.time(), info=info)
+        for cache, reapply in ((_board_cache, reapply_lines), (_nba_cache, nba.reapply_lines), (_nhl_cache, nhl.reapply_lines)):
+            if cache.get("data"):
+                try:
+                    reapply(cache["data"])
+                except Exception as e:
+                    print(f"  re-applying lines to a cached board failed: {e}")
+        return info
+
+
 def get_board(force=False):
+    refresh_proline()          # throttled; re-applies fresh lines to any cached boards in place
     with lock:
         if force or not _board_cache["data"] or time.time() - _board_cache["t"] > 300:
             _board_cache["data"] = build_board()
@@ -1747,6 +1795,7 @@ def get_nba_board(force=False):
     longer than CFB, since last season's games never change at all until this season starts
     producing its own (checked live: it hasn't yet), so there's nothing new to pick up in between."""
     import nba
+    refresh_proline()
     with _nba_lock:
         if force or not _nba_cache["data"] or time.time() - _nba_cache["t"] > 3600:
             _nba_cache["data"] = nba.build_board()
@@ -1762,6 +1811,7 @@ def get_nhl_board(force=False):
     """Same reasoning as get_nba_board — a full prior season of box scores, cached for an hour since
     a rebuild still re-checks every calendar day's schedule even with every game itself cached."""
     import nhl
+    refresh_proline()
     with _nhl_lock:
         if force or not _nhl_cache["data"] or time.time() - _nhl_cache["t"] > 3600:
             _nhl_cache["data"] = nhl.build_board()
@@ -1821,6 +1871,18 @@ def api_pull_odds():
     except Exception as e:
         return jsonify(error=f"Could not pull lines: {e}"), 502
     return jsonify(get_board(force=True))
+
+
+@app.route("/api/pull-proline", methods=["POST"])
+def api_pull_proline():
+    """Force a fresh Prop-Line pull for all three sports. Cached boards get the new lines applied in place,
+    so nothing rebuilds; the NFL board is returned (the page re-fetches whichever sport it is showing)."""
+    if not proline.load_key():
+        return jsonify(error="No Prop-Line key found at data/proline_key.txt."), 400
+    info = refresh_proline(force=True)
+    # the cached board already has the new lines applied in place; don't wait on a rebuild just for this
+    board = _board_cache["data"] or get_board()
+    return jsonify({**board, "proline_info": info})
 
 
 @app.route("/api/pull-sgo", methods=["POST"])

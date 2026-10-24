@@ -462,8 +462,16 @@ window.onerror = function (msg, src, line) {
 
 <div class="modal" id="modal">
   <h2 style="margin-top:0">Sportsbook lines</h2>
-  <p class="muted">Right now the lines in the table are <b>estimates</b> from recent averages. To see real
-    FanDuel / DraftKings prop lines, add a free key from The Odds API:</p>
+  <h3 style="margin:0 0 6px">Prop-Line &mdash; NFL, NBA &amp; NHL (automatic)</h3>
+  <p class="muted">Real sportsbook prop lines, alt-line prices and EV for all three sports. They refresh by
+    themselves about every 30 minutes while the app is open; the button forces a refresh right now. The key
+    lives in <code>data/proline_key.txt</code> (never entered here). Props only appear once the books post them,
+    usually the day of the game.</p>
+  <button class="btn primary" id="btnPullPl">Pull fresh lines now (all sports)</button>
+  <p class="note" id="plInfo"></p>
+  <hr style="border-color:var(--line);margin:16px 0">
+  <h3 style="margin:0 0 6px">Older option &mdash; The Odds API (NFL only)</h3>
+  <p class="muted">Not needed once Prop-Line is set up. If you ever want it, add a free key from The Odds API:</p>
   <ol>
     <li>Go to <a href="https://the-odds-api.com" target="_blank" rel="noopener">the-odds-api.com</a> and sign up for the free plan.</li>
     <li>Copy the key they email you and paste it below.</li>
@@ -939,6 +947,11 @@ function renderTop() {
     : board.sgo_pulled ? `Last pulled ${new Date(board.sgo_pulled * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`
     : 'Key found, never pulled yet.';
   if ($('#btnPullSgo')) $('#btnPullSgo').disabled = SPORT !== 'nfl';
+  if ($('#plInfo')) $('#plInfo').textContent = SPORT === 'ncaaf' ? 'College football is not covered by Prop-Line lines yet.'
+    : !board.has_proline_key ? 'No key found at data/proline_key.txt.'
+    : board.proline_pulled ? `Last pulled ${new Date(board.proline_pulled * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`
+    : 'Key found, never pulled yet.';
+  if ($('#btnPullPl')) $('#btnPullPl').disabled = SPORT === 'ncaaf';
 }
 
 // ---- player page ------------------------------------------------------
@@ -1626,6 +1639,16 @@ $('#btnPull').onclick = async () => {
   try { setBoard(await load('/api/pull-odds', { method: 'POST' })); closeAll(); toast('Sportsbook lines loaded'); }
   catch (e) { toast(e.message, true); }
   b.disabled = false; b.textContent = 'Pull lines now';
+};
+if ($('#btnPullPl')) $('#btnPullPl').onclick = async () => {
+  const b = $('#btnPullPl'); b.disabled = true; b.textContent = 'Pulling…';
+  try {
+    await load('/api/pull-proline', { method: 'POST' });
+    Object.keys(BOARDS).forEach(k => { if (k !== SPORT) delete BOARDS[k]; });
+    setBoard(await load(BOARD_URLS[SPORT]));
+    closeAll(); toast('Fresh lines loaded');
+  } catch (e) { toast(e.message, true); }
+  b.disabled = SPORT === 'ncaaf'; b.textContent = 'Pull fresh lines now (all sports)';
 };
 if ($('#btnPullSgo')) $('#btnPullSgo').onclick = async () => {
   const b = $('#btnPullSgo'); b.disabled = true; b.textContent = 'Pulling… (about a minute)';
