@@ -375,6 +375,9 @@ def apply_line(row, sg, td_markets, ev_pct):
     if comparable:
         row["ev_over"] = ev_pct(sg["over"], sg["fair_over"])
         row["ev_under"] = ev_pct(sg["under"], sg["fair_under"])
+    if row.get("inj") == "Out":
+        # a book can leave a price up for a player who has been ruled out; a bet on him is void, so no EV
+        row["ev_over"] = row["ev_under"] = None
     row["fair_line"] = fl
     row["real_alts"] = [{"t": a["t"], "over_odds": a["over"]["odds"], "over_book": a["over"]["book"]}
                         for a in sg.get("alts") or [] if a.get("over")]
@@ -389,14 +392,14 @@ def reapply(board, sgo, norm, td_markets, ev_pct, line_hist=None, injuries=None)
     for row in board["props"]:
         if row.get("src") not in ("est", "book"):
             continue
+        if injuries is not None:        # first, so a player who is now Out gets no EV below
+            inj = injuries.get(str(row.get("pid")))
+            row["inj"], row["inj_note"] = (inj["status"], inj["note"]) if inj else (None, None)
         reset_line(row)
         key = f"{norm(row['player'])}|{row['market']}|{row['game']}"
         apply_line(row, sgo["lines"].get(key), td_markets, ev_pct)
         if line_hist is not None:
             row["line_history"] = line_hist.get(key)
-        if injuries is not None:
-            inj = injuries.get(str(row.get("pid")))
-            row["inj"], row["inj_note"] = (inj["status"], inj["note"]) if inj else (None, None)
     board["odds_pulled"] = sgo.get("pulled")
     board["proline_pulled"] = sgo.get("proline_pulled")
 
