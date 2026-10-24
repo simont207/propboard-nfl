@@ -21,6 +21,8 @@ import json
 import time
 from pathlib import Path
 
+from concurrent.futures import ThreadPoolExecutor
+
 import pandas as pd
 import requests
 
@@ -230,6 +232,42 @@ def load_history(season, current_week, max_weeks=HIST_WEEKS, complete=False):
 # ------------------------------------------------------------------ board ---
 def ordinal(n):
     return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+# Roster positions that can't have a skill-market prop: a punter, lineman or linebacker who happened to
+# take a snap or two is not a running back, but a box-score-based guess made him one. Defensive backs are
+# deliberately NOT here -- real two-way receivers (WR/CB) exist and do catch passes.
+NON_SKILL_ROSTER_POS = {"P", "PK", "K", "LS", "OL", "OT", "OG", "C", "DL", "DE", "DT", "NT", "LB"}
+MIN_TRUSTED_ROSTER = 30   # a roster with fewer players than this looks partial -- don't prune its team on it
+
+
+def load_rosters(games):
+    """Current roster of every team with an upcoming game: {team code: {athlete_id: roster position}}.
+    One call per team (~135) run in parallel -- about 5 seconds in total. ESPN's athlete id is the same id
+    the box scores use. A team whose call fails is simply left out, which leaves that team unpruned."""
+    teams = {}
+    for g in games:
+        teams[g["home"]] = g.get("home_id")
+        teams[g["away"]] = g.get("away_id")
+
+    def fetch(item):
+        code, tid = item
+        if not tid:
+            return code, None
+        for attempt in range(3):
+            try:
+                d = _get(f"teams/{tid}/roster")
+                out = {}
+                for grp in d.get("athletes", []):
+                    for a in grp.get("items", []):
+                        out[str(a["id"])] = (a.get("position") or {}).get("abbreviation")
+                return code, out
+            except Exception:
+                time.sleep(0.7 * (attempt + 1))
+        return code, None
+
+    with ThreadPoolExecutor(8) as ex:
+        return {code: r for code, r in ex.map(fetch, teams.items()) if r}
 
 
 def upcoming_games():
@@ -525,6 +563,25 @@ def build_board():
     rest = load_rest_days(df, games)
 
     latest = df.sort_values(["season", "week", "date"]).groupby("athlete_id").tail(1).set_index("athlete_id")
+    # College rosters turn over every year: a player who graduated, was drafted or transferred still has a
+    # last box score under his old school, so he kept getting props for games he won't play in (35% of the
+    # board's players had no game this season at all). ESPN's roster is the source of truth for who is on a
+    # team NOW, so anyone not on his own team's current roster is dropped, as is anyone whose roster
+    # position can't have a skill-market prop. Only teams whose roster loaded with a sane size are pruned,
+    # so a failed or partial fetch can never wipe a team. (A transfer reappears under his new school as soon
+    # as he plays a game for it.)
+    rosters = load_rosters(games)
+    if rosters:
+        gone = []
+        for aid, p in latest.iterrows():
+            r = rosters.get(p.team)
+            if r is None or len(r) < MIN_TRUSTED_ROSTER:
+                continue
+            if str(aid) not in r or r[str(aid)] in NON_SKILL_ROSTER_POS:
+                gone.append(aid)
+        if gone:
+            print(f"NCAAF: dropping {len(gone)} players who are no longer on their team's roster or can't have a skill prop")
+            latest = latest.drop(index=gone)
     print("NCAAF: fetching full-season schedule for the Games Played timeline...")
     try:
         timelines = load_season_timeline(season, latest, df)
