@@ -1077,7 +1077,7 @@ def defense_ranks(df, sched):
     ranks, dvp, recent, recent_players = {}, {}, {}, {}
     for mkey, (_, positions, _) in MARKETS.items():
         for pos in positions:
-            sub = df[df.position == pos].copy()
+            sub = df.loc[df.position == pos, ["opponent_team", "season", "week", "player_display_name", "team", mkey]].copy()
             sub[mkey] = sub[mkey].fillna(0)          # per-game NaN (no qualifying play) -> 0 for this defense-allowed rollup only
             sub = sub.sort_values(mkey, ascending=False)
             per_game = (sub.groupby(["opponent_team", "season", "week"])
@@ -1100,7 +1100,9 @@ def defense_ranks(df, sched):
             # Individual player-game results vs each defense -- real qualifying values only (dropna,
             # not the 0-filled `sub` above, which would bury real results under every scratch/inactive
             # on the roster). Newest first, capped at 8 per team so the table stays short.
-            real = df[(df.position == pos) & df[mkey].notna()].sort_values(["season", "week"])
+            real = (df.loc[(df.position == pos) & df[mkey].notna(),
+                           ["opponent_team", "season", "week", "player_display_name", "team", "game_id", mkey]]
+                    .sort_values(["season", "week"]))
             for team, grp in real.groupby("opponent_team"):
                 rows = grp.tail(8).iloc[::-1]
                 recent_players[f"{team}|{pos}|{mkey}"] = [
@@ -1620,11 +1622,16 @@ def build_board():
                                  if g.dropbacks.tail(5).sum() else None, include_groups=False))
 
     rows = []
+    loop_cols = sorted({"game_id", "team", "season", "week", "opponent_team", *MARKETS,
+                        *(vcol for _, _, (vcol, _) in MARKETS.values())})
     for g in games:
         for team, opp, home in ((g["home"], g["away"], 1), (g["away"], g["home"], 0)):
             t, o = ESPN_TO_NFLVERSE.get(team, team), ESPN_TO_NFLVERSE.get(opp, opp)
             for pid, p in latest[latest.team == t].iterrows():
-                hist = df[df.player_id == pid]
+                # df is ~100 columns wide; this loop only ever reads the market and volume columns plus the
+                # five used to describe a past game, so slice just those (the full-width slices and the
+                # itertuples calls on them were ~87% of the whole build).
+                hist = df.loc[df.player_id == pid, loop_cols]
                 pos = p.position
                 for mkey, (label, positions, (vcol, vmin)) in MARKETS.items():
                     if pos not in positions:
@@ -1662,7 +1669,8 @@ def build_board():
                         "est": est, "line": est, "src": "fixed" if mkey in FIXED_LINES else "est", "over": None, "under": None,
                         "books": [], "inj": inj_status,
                         "opp_rank": ranks.get((o, pos, mkey)),
-                        "log": [game_entry(sched, r, mkey) for r in hl.itertuples()],
+                        "log": [game_entry(sched, r, mkey) for r in
+                                hl[["game_id", "team", "season", "week", "opponent_team", mkey]].itertuples()],
                         "vol": round(float(vol), 1),
                         "tier": tiers.get((pid, mkey, g["id"])),
                         "ev_over": None, "ev_under": None, "real_alts": [], "fair_line": None,
@@ -1720,6 +1728,41 @@ def build_board():
     }
 
 
+def _serve_board(cache, lock, build, ttl, force=False, after=None):
+    """Return a board, never making a page wait on a routine refresh. The very first build (or force=True,
+    e.g. the Refresh button) blocks as before. After that, a board that is merely older than `ttl` is
+    returned immediately while a fresh one is built in a background thread and swapped in when ready.
+    `after(board)` runs on a freshly built board just before the swap (re-applies the newest lines)."""
+    with lock:
+        if force or not cache["data"]:
+            cache["data"] = build()
+            cache["t"] = time.time()
+            cache["refreshing"] = False
+            return cache["data"]
+        if (time.time() - cache["t"] > ttl and not cache.get("refreshing")
+                and time.time() >= cache.get("retry_after", 0)):
+            cache["refreshing"] = True
+            threading.Thread(target=_rebuild_board, args=(cache, lock, build, after), daemon=True).start()
+        return cache["data"]
+
+
+def _rebuild_board(cache, lock, build, after):
+    try:
+        data = build()                      # not under the lock: requests keep getting the old board meanwhile
+        if after:
+            after(data)
+        with lock:
+            cache["data"] = data
+            cache["t"] = time.time()
+            cache["retry_after"] = 0
+    except Exception as e:
+        print(f"  background board rebuild failed (keeping the previous board): {e}")
+        cache["retry_after"] = time.time() + 120      # don't hammer a build that is failing (e.g. no internet)
+    finally:
+        with lock:
+            cache["refreshing"] = False
+
+
 _pl_lock = threading.Lock()
 _pl_state = {"t": 0, "info": None}
 PROLINE_REFRESH_S = 1800     # automatic pulls happen at most every 30 minutes
@@ -1764,11 +1807,7 @@ def _refresh_proline(force):
 
 def get_board(force=False):
     refresh_proline()          # throttled; re-applies fresh lines to any cached boards in place
-    with lock:
-        if force or not _board_cache["data"] or time.time() - _board_cache["t"] > 300:
-            _board_cache["data"] = build_board()
-            _board_cache["t"] = time.time()
-        return _board_cache["data"]
+    return _serve_board(_board_cache, lock, build_board, 300, force, after=reapply_lines)
 
 
 _cfb_lock = threading.Lock()
@@ -1779,11 +1818,7 @@ def get_cfb_board(force=False):
     """NCAAF fetches ~250 individual game box scores (see cfb.py), so this is cached longer
     than the NFL board — cheap free data, but no reason to redo the work every 5 minutes."""
     import cfb
-    with _cfb_lock:
-        if force or not _cfb_cache["data"] or time.time() - _cfb_cache["t"] > 1800:
-            _cfb_cache["data"] = cfb.build_board()
-            _cfb_cache["t"] = time.time()
-        return _cfb_cache["data"]
+    return _serve_board(_cfb_cache, _cfb_lock, cfb.build_board, 1800, force)
 
 
 _nba_lock = threading.Lock()
@@ -1796,11 +1831,7 @@ def get_nba_board(force=False):
     producing its own (checked live: it hasn't yet), so there's nothing new to pick up in between."""
     import nba
     refresh_proline()
-    with _nba_lock:
-        if force or not _nba_cache["data"] or time.time() - _nba_cache["t"] > 3600:
-            _nba_cache["data"] = nba.build_board()
-            _nba_cache["t"] = time.time()
-        return _nba_cache["data"]
+    return _serve_board(_nba_cache, _nba_lock, nba.build_board, 3600, force, after=nba.reapply_lines)
 
 
 _nhl_lock = threading.Lock()
@@ -1812,11 +1843,7 @@ def get_nhl_board(force=False):
     a rebuild still re-checks every calendar day's schedule even with every game itself cached."""
     import nhl
     refresh_proline()
-    with _nhl_lock:
-        if force or not _nhl_cache["data"] or time.time() - _nhl_cache["t"] > 3600:
-            _nhl_cache["data"] = nhl.build_board()
-            _nhl_cache["t"] = time.time()
-        return _nhl_cache["data"]
+    return _serve_board(_nhl_cache, _nhl_lock, nhl.build_board, 3600, force, after=nhl.reapply_lines)
 
 
 # ------------------------------------------------------------------ routes ---
