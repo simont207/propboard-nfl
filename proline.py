@@ -405,7 +405,8 @@ def reapply(board, sgo, norm, td_markets, ev_pct, line_hist=None, injuries=None)
 # ESPN's injury report, relayed by Prop-Line (free, refreshed every ~10 min, carries ESPN's own athlete id --
 # the same id the NBA and NHL boards use). Mapped onto the three tags the page already understands.
 INJURY_TAG = {"out": "Out", "injured_list": "Out", "suspended": "Out",
-              "doubtful": "Doubtful", "questionable": "Questionable", "day_to_day": "Questionable"}
+              "doubtful": "Doubtful", "questionable": "Questionable", "day_to_day": "Questionable",
+              "game_time_decision": "Questionable"}
 INJURIES_MAX_AGE = 24 * 3600
 
 
@@ -413,7 +414,9 @@ def _injury_note(p):
     what = (p.get("injury_type") or "").strip()
     if p.get("detail"):
         what = f"{what} ({p['detail'].strip()})" if what else p["detail"].strip()
-    bits = [what or "injury"]
+    if not what and not p.get("expected_return"):
+        return None               # college entries carry a status only -- say nothing rather than a filler word
+    bits = [what] if what else []
     if p.get("expected_return"):
         bits.append(f"expected back {p['expected_return']}")
     return ", ".join(bits)
@@ -428,6 +431,8 @@ def pull_injuries(sport_key, key=None):
     players = {}
     for p in data.get("players", []):
         tag = INJURY_TAG.get(p.get("status_code"))
+        if (p.get("status") or "").strip().lower() == "exempt":
+            continue     # college "Exempt" is filed under out but is not an injury -- 472 of them, meaning unclear
         aid = p.get("espn_athlete_id")
         if tag and aid:
             players[str(aid)] = {"status": tag, "note": _injury_note(p), "name": p.get("player_name"),

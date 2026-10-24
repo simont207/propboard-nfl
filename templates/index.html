@@ -947,11 +947,10 @@ function renderTop() {
     : board.sgo_pulled ? `Last pulled ${new Date(board.sgo_pulled * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`
     : 'Key found, never pulled yet.';
   if ($('#btnPullSgo')) $('#btnPullSgo').disabled = SPORT !== 'nfl';
-  if ($('#plInfo')) $('#plInfo').textContent = SPORT === 'ncaaf' ? 'College football is not covered by Prop-Line lines yet.'
-    : !board.has_proline_key ? 'No key found at data/proline_key.txt.'
+  if ($('#plInfo')) $('#plInfo').textContent = (SPORT === 'ncaaf' ? 'College football gets injury tags only (no sportsbook lines yet). ' : '')
+    + (!board.has_proline_key ? 'No key found at data/proline_key.txt.'
     : board.proline_pulled ? `Last pulled ${new Date(board.proline_pulled * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`
-    : 'Key found, never pulled yet.';
-  if ($('#btnPullPl')) $('#btnPullPl').disabled = SPORT === 'ncaaf';
+    : 'Key found, never pulled yet.');
 }
 
 // ---- player page ------------------------------------------------------
@@ -1648,7 +1647,7 @@ if ($('#btnPullPl')) $('#btnPullPl').onclick = async () => {
     setBoard(await load(BOARD_URLS[SPORT]));
     closeAll(); toast('Fresh lines loaded');
   } catch (e) { toast(e.message, true); }
-  b.disabled = SPORT === 'ncaaf'; b.textContent = 'Pull fresh lines now (all sports)';
+  b.disabled = false; b.textContent = 'Pull fresh lines now (all sports)';
 };
 if ($('#btnPullSgo')) $('#btnPullSgo').onclick = async () => {
   const b = $('#btnPullSgo'); b.disabled = true; b.textContent = 'Pulling… (about a minute)';

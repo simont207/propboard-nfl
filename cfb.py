@@ -26,9 +26,12 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
 
+import proline
+
 BASE = Path(__file__).parent
 DATA = BASE / "data" / "cfb"
 GAMES_DIR = DATA / "games"
+INJURIES_FILE = DATA / "proline_injuries.json"
 GAMES_DIR.mkdir(parents=True, exist_ok=True)
 
 ESPN_HOSTS = ["site.api.espn.com", "site.web.api.espn.com"]   # 2nd host: site.api.* 403s from GH Actions
@@ -232,6 +235,24 @@ def load_history(season, current_week, max_weeks=HIST_WEEKS, complete=False):
 # ------------------------------------------------------------------ board ---
 def ordinal(n):
     return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+def pull_proline_injuries():
+    """College football's only Prop-Line data: ESPN's injury report (status only -- no injury type or return
+    date for college). One request."""
+    inj = proline.pull_injuries("football_ncaaf")
+    INJURIES_FILE.write_text(json.dumps(inj))
+    return inj
+
+
+def reapply_injuries(board):
+    """Refresh a cached board's injury tags in place after a new pull (no rebuild)."""
+    inj_map = proline.load_injuries(INJURIES_FILE)
+    for row in board["props"]:
+        inj = inj_map.get(str(row.get("pid")))
+        row["inj"], row["inj_note"] = (inj["status"], inj["note"]) if inj else (None, None)
+    board["has_proline_key"] = bool(proline.load_key())
+    board["proline_pulled"] = (proline._read(INJURIES_FILE) or {}).get("pulled")
 
 
 # Roster positions that can't have a skill-market prop: a punter, lineman or linebacker who happened to
@@ -589,6 +610,7 @@ def build_board():
         print(f"NCAAF: season timeline failed, leaving it empty: {e}")
         timelines = {}
     rows = []
+    inj_map = proline.load_injuries(INJURIES_FILE)
     # Each player's history, grouped once and cut down to the columns this loop reads (the old code filtered
     # the whole wide table again for every player x game, and ran itertuples on the full-width slices).
     loop_cols = list(dict.fromkeys(["season", "week", "opp", "date", "team", *MARKETS, *VOL_COL.values()]))
@@ -619,7 +641,7 @@ def build_board():
                         "game": g["id"], "img": p.headshot if isinstance(p.headshot, str) else None,
                         "market": mkey, "label": label,
                         "est": est, "line": est, "src": "est", "over": None, "under": None,
-                        "books": [], "inj": None, "opp_rank": rk,
+                        "books": [], "inj": (inj_map.get(str(aid)) or {}).get("status"), "inj_note": (inj_map.get(str(aid)) or {}).get("note"), "opp_rank": rk,
                         "log": [[int(r.season), int(r.week), r.opp, float(getattr(r, mkey)), r.date[:10],
                                  1 if r.team == g["home"] else (0 if r.team == g["away"] else None),
                                  None, None] for r in hl[["season", "week", "opp", "date", "team", mkey]].itertuples()],
@@ -659,7 +681,8 @@ def build_board():
 
     board = {"season": season, "games": games, "props": rows, "dvp": dvp, "recent": recent,
              "recent_players": recent_players, "team_streaks": team_streaks,
-             "inj_week": 0, "built": time.time(), "has_key": False, "odds_pulled": None, "odds_remaining": None}
+             "inj_week": 0, "built": time.time(), "has_key": False, "odds_pulled": None, "odds_remaining": None,
+             "has_proline_key": bool(proline.load_key()), "proline_pulled": (proline._read(INJURIES_FILE) or {}).get("pulled")}
     return _clean_nans(board)
 
 

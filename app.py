@@ -1795,8 +1795,16 @@ def _refresh_proline(force):
                               "requests": out["requests"], "remaining": out["remaining"]}
             except Exception as e:
                 info[name] = {"error": str(e)}
+        try:
+            import cfb
+            cinj = cfb.pull_proline_injuries()
+            info["ncaaf"] = {"injuries": len(cinj["players"]), "requests": cinj["requests"], "remaining": cinj["remaining"]}
+        except Exception as e:
+            info["ncaaf"] = {"error": str(e)}
         _pl_state.update(t=time.time(), info=info)
-        for cache, reapply in ((_board_cache, reapply_lines), (_nba_cache, nba.reapply_lines), (_nhl_cache, nhl.reapply_lines)):
+        import cfb
+        for cache, reapply in ((_board_cache, reapply_lines), (_nba_cache, nba.reapply_lines), (_nhl_cache, nhl.reapply_lines),
+                               (_cfb_cache, cfb.reapply_injuries)):
             if cache.get("data"):
                 try:
                     reapply(cache["data"])
@@ -1818,7 +1826,8 @@ def get_cfb_board(force=False):
     """NCAAF fetches ~250 individual game box scores (see cfb.py), so this is cached longer
     than the NFL board — cheap free data, but no reason to redo the work every 5 minutes."""
     import cfb
-    return _serve_board(_cfb_cache, _cfb_lock, cfb.build_board, 1800, force)
+    refresh_proline()
+    return _serve_board(_cfb_cache, _cfb_lock, cfb.build_board, 1800, force, after=cfb.reapply_injuries)
 
 
 _nba_lock = threading.Lock()
