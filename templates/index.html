@@ -176,6 +176,46 @@
   .gbadge .t { font-size: 12px; color: var(--muted); text-align: center; }
   .chartcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 10px;
     margin-top: 14px; }
+  /* Top Props (NFL / NBA / NHL) and the day-wide Best bets block */
+  .tp-card { padding: 14px 16px; }
+  .tp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+  .tp-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; background: #2a2340; color: #c4b5fd; }
+  .tp-note { font-size: 12px; margin: 4px 0 6px; }
+  .tp-sec { display: flex; align-items: center; gap: 8px; margin: 12px 0 6px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .tp-sec b { color: var(--text); font-size: 13px; font-weight: 600; }
+  .tp-sec i { font-style: normal; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 11px; }
+  .tp-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border-radius: 8px; background: var(--panel2);
+    text-decoration: none; color: inherit; margin-bottom: 6px; }
+  .tp-row.perfect { box-shadow: inset 0 0 0 1px var(--green-dim); }
+  .tp-rk { width: 22px; height: 22px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); font-size: 11px;
+    display: flex; align-items: center; justify-content: center; color: var(--muted); flex-shrink: 0; margin-top: 6px; }
+  .tp-main { flex: 1; min-width: 0; }
+  .tp-name { font-weight: 600; font-size: 14px; }
+  .tp-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .tp-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .tpc { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+  .tpc.m { color: var(--green); border-color: var(--green-dim); background: rgba(74,222,128,.08); }
+  .tpc.n { color: var(--blue); border-color: #27456b; background: rgba(96,165,250,.08); }
+  .tpc.s { color: var(--amber); border-color: #6b5316; background: rgba(251,191,36,.08); }
+  .tpc.o { color: #c4b5fd; border-color: #4b3d7a; background: rgba(167,139,250,.08); }
+  .tp-right { text-align: right; flex-shrink: 0; }
+  .tp-right b { display: block; font-size: 15px; font-weight: 700; color: var(--green); line-height: 1.15; }
+  .tp-right.v b { color: var(--amber); }
+  .tp-right span { display: block; font-size: 11px; color: var(--muted); }
+  .tp-right em { display: block; font-style: normal; font-size: 11px; color: var(--amber); }
+  .tpdots { display: inline-flex; gap: 2px; margin-top: 5px; }
+  .tpdots u { display: inline-block; width: 9px; height: 12px; border-radius: 2px; background: var(--green); text-decoration: none; }
+  .tpdots u.x { background: var(--red); }
+  .tp-empty { font-size: 12px; padding: 8px 0 2px; }
+  .bod { border: 1.5px dashed #6b5316; border-radius: 12px; padding: 12px 14px 8px; margin: 0 0 14px; }
+  .bod-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .bod-head .seg button { padding: 4px 11px; font-size: 12px; }
+  .bod-bar { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; }
+  @media (max-width: 600px) {          /* phone: the hit count / EV drops under the player instead of squeezing the chips */
+    .tp-row { flex-wrap: wrap; }
+    .tp-right { flex: 0 0 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; text-align: left; }
+    .tp-right b, .tp-right span, .tp-right em { display: inline; }
+  }
   .cmp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .cmp-empty { text-align: center; padding: 20px 0; }
   .cmp-search { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
@@ -404,6 +444,7 @@ window.onerror = function (msg, src, line) {
   <div id="sportBanner"></div>
   <div class="games" id="games"></div>
   <div class="note" style="margin:-4px 0 10px">Click a game to see every player's props for that matchup.</div>
+  <div id="bestOfDay"></div>
 
   <div class="pills" id="markets"></div>
   <div class="note" style="margin:-4px 0 10px">Tap a prop to toggle it on or off — pick just one or several at once. Tap <b>All props</b> to clear the picks and show everything.</div>
@@ -947,6 +988,7 @@ function renderTop() {
     : board.sgo_pulled ? `Last pulled ${new Date(board.sgo_pulled * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`
     : 'Key found, never pulled yet.';
   if ($('#btnPullSgo')) $('#btnPullSgo').disabled = SPORT !== 'nfl';
+  renderBestOfDay();
   if ($('#plInfo')) $('#plInfo').textContent = (SPORT === 'ncaaf' ? 'College football gets injury tags only (no sportsbook lines yet). ' : '')
     + (!board.has_proline_key ? 'No key found at data/proline_key.txt.'
     : board.proline_pulled ? `Last pulled ${new Date(board.proline_pulled * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`
@@ -1960,7 +2002,7 @@ function topPropsForGame(gameId, limit = 3) {
   });
   return [...byPlayer.values()].sort((a, b) => b.score - a.score).slice(0, limit);
 }
-function topPropsHtml(gameId) {
+function topPropsHtmlLegacy(gameId) {   // college football keeps the original card (no minutes/role data there)
   const top = topPropsForGame(gameId);
   if (!top.length) return '';
   return `<div class="chartcard" style="margin-top:14px;padding:14px 16px">
@@ -1979,6 +2021,191 @@ function topPropsHtml(gameId) {
           <div class="muted" style="font-size:11px">${eff ? eff.L + ' matchup · ' : ''}${l5.n ? Math.round(l5.pct) + '% L5' : ''}</div>
         </div></a>`;
     }).join('')}</div></div>`;
+}
+// ---- Top Props v2 (NFL / NBA / NHL) -------------------------------------------------------------------
+// Rules agreed with Simon (checked against last season's games first):
+//  * MUST-HAVES for every pick: an A- or better matchup, and minutes / role steady or rising (NBA minutes, NHL ice
+//    time, NFL usage: last 3 games vs his last 10 / last 6 -- not down more than 5%).
+//  * Safest: most of his last 5 games over the line first (every 5-of-5 before any 4-of-5). Ties go to the better
+//    matchup, then the bigger minutes jump, then the longer streak, then a rotation teammate being out (NBA), then a
+//    high game total (NBA / NFL).
+//  * Best value: biggest real-book EV, same must-haves.
+//  * Overs only -- both must-haves describe a player who is set up to go over.
+// College football has no minutes/role data, so it keeps the original card.
+const TP_SPORTS = new Set(['nfl', 'nba', 'nhl']);
+const TP_SAFE_MIN_HITS = 4;                     // of his last 5 games
+const TP_ROLE_LABEL = { min: 'Min', attempts: 'Pass att', carries: 'Carries', targets: 'Targets', touches: 'Touches',
+  tackle_vol: 'Tackle chances', kick_vol: 'Kicks' };
+const TP_ENV_MIN = { nba: 0.03, nfl: 0.05 };    // game total this far above the games his numbers came from
+const TP_BOOK = { fanduel: 'FanDuel', draftkings: 'DraftKings', betmgm: 'BetMGM', caesars: 'Caesars', espnbet: 'ESPN BET',
+  fanatics: 'Fanatics', hardrock: 'Hard Rock', betrivers: 'BetRivers', bovada: 'Bovada', thescorebet: 'theScore',
+  unibet: 'Unibet', betway: 'Betway' };
+let TP_CTX = null;
+function tpCtx() {            // per-board lookups, rebuilt only when the board object changes
+  if (TP_CTX && TP_CTX.board === board) return TP_CTX;
+  const games = new Map(board.games.map(g => [g.id, g]));
+  const teamOut = new Map();  // NBA: rotation players ruled Out / Doubtful, summed per team
+  if (board.rot) {
+    const seen = new Set();
+    board.props.forEach(p => {
+      if ((p.inj !== 'Out' && p.inj !== 'Doubtful') || seen.has(p.pid)) return;
+      seen.add(p.pid);
+      const m = board.rot[p.pid];
+      if (!m) return;
+      const t = teamOut.get(p.team) || { min: 0, list: [] };
+      t.min += m; t.list.push({ name: p.player, min: m });
+      teamOut.set(p.team, t);
+    });
+    teamOut.forEach(t => t.list.sort((a, b) => b.min - a.min));
+  }
+  return (TP_CTX = { board, games, teamOut });
+}
+function tpCandidate(p, ctx) {
+  if (TRIVIAL_STREAK_MARKETS.has(p.market) || p.market === 'xp_made_m') return null;
+  if (p.inj === 'Out' || p.inj === 'Doubtful') return null;
+  if (p.src === 'est') return null;                                   // a "best bet" has to be a line a book actually offers
+  const r = p.role;
+  if (!r || !(r[1] > 0) || r[0] < r[1] * 0.95) return null;          // must-have: minutes / role steady or rising
+  const vals = p.log.map(x => x[3]);
+  if (vals.length < 5) return null;
+  const line = lineFor(p);
+  const hits = vals.slice(-5).filter(v => v > line).length;
+  let ev = p.ev_over != null && p.ev_over > 0 ? p.ev_over : null;
+  if (ev != null) {
+    // Same sanity guards the original Top Props used: an EV number never gets to contradict his own results.
+    if (hits <= 1) ev = null;
+    const season = rate(p.log.filter(x => x[0] === board.season).map(x => x[3]), line, 'over');
+    if (season.n >= 3 && season.pct < 50) ev = null;
+  }
+  if (hits < TP_SAFE_MIN_HITS && ev == null) return null;
+  const idx = matchupGradeIdx(p, 'over');
+  if (idx === null || idx > 2) return null;                           // must-have: A- or better matchup
+  let streak = 0;
+  for (let i = vals.length - 1; i >= 0 && vals[i] > line; i--) streak++;
+  const g = ctx.games.get(p.game);
+  const total = g && g.total ? parseFloat(g.total) : null;
+  const env = TP_ENV_MIN[SPORT] != null && p.gt && total ? total / p.gt - 1 : null;
+  const out = SPORT === 'nba' ? ctx.teamOut.get(p.team) : null;
+  return { p, line, hits, streak, idx, ev, ratio: r[0] / r[1], total, env,
+    outMin: out ? out.min : 0, outList: out ? out.list : [], last5: vals.slice(-5).map(v => v > line) };
+}
+function tpCmp(a, b) {
+  return (b.hits - a.hits) || (a.idx - b.idx) || (Math.round(b.ratio * 20) - Math.round(a.ratio * 20))
+    || (b.streak - a.streak) || (b.outMin - a.outMin) || ((b.env ?? -1) - (a.env ?? -1))
+    || ((b.ev ?? 0) - (a.ev ?? 0)) || a.p.player.localeCompare(b.p.player);
+}
+const tpCmpEv = (a, b) => (b.ev - a.ev) || tpCmp(a, b);
+function tpOnePerPlayer(list, cmp) {   // each player's single best prop for the game
+  const seen = new Set();
+  return list.slice().sort(cmp).filter(c => {
+    const k = c.p.game + '|' + c.p.pid;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+}
+function tpCandidates(gameIds) {
+  const ctx = tpCtx(), out = [];
+  board.props.forEach(p => {
+    if (!gameIds.has(p.game)) return;
+    const c = tpCandidate(p, ctx);
+    if (c) out.push(c);
+  });
+  return out;
+}
+function tpGameLists(gameId, limit = 6) {
+  const cands = tpCandidates(new Set([gameId]));
+  const safe = tpOnePerPlayer(cands.filter(c => c.hits >= TP_SAFE_MIN_HITS), tpCmp).slice(0, limit);
+  const taken = new Set(safe.map(c => c.p.pid));
+  const value = tpOnePerPlayer(cands.filter(c => c.ev != null && !taken.has(c.p.pid)), tpCmpEv).slice(0, limit);
+  return { safe, value };
+}
+function tpChips(c) {
+  const { p } = c, [now, base, kind] = p.role;
+  const chips = [`<span class="tpc m">${GRADES[c.idx]} matchup${p.opp_rank ? ` · ${esc(p.opp)} allows ${ord(p.opp_rank)}-most` : ''}</span>`];
+  let a = base, b = now;
+  if (kind === 'min') { a = Math.round(base); b = Math.round(now); if (a === b && Math.abs(now - base) >= 0.3) { a = base.toFixed(1); b = now.toFixed(1); } }
+  else { a = base.toFixed(1); b = now.toFixed(1); }
+  chips.push(`<span class="tpc n">${TP_ROLE_LABEL[kind] || 'Role'} ${a} → ${b}</span>`);
+  chips.push(`<span class="tpc s">${c.hits === 5 ? 'Perfect last 5' : c.streak >= 3 ? `Hit ${c.streak} straight` : `Missed ${5 - c.hits} of last 5`}</span>`);
+  if (c.outMin >= 20 && c.outList.length) {
+    chips.push(`<span class="tpc o">${esc(c.outList[0].name)}${c.outList.length > 1 ? ` +${c.outList.length - 1}` : ''} out</span>`);
+  }
+  if (c.env != null && c.env >= TP_ENV_MIN[SPORT]) chips.push(`<span class="tpc o">High total ${c.total} · his usual ${Math.round(p.gt)}</span>`);
+  return chips.join('');
+}
+function tpEvText(c) {
+  const p = c.p, bk = (p.books || []).find(b => b.line === p.line && b.over === p.over);
+  return `+${Math.round(c.ev)}% EV${p.over != null ? ` · ${fmtOdds(p.over)}${bk ? ' ' + (TP_BOOK[bk.book] || bk.book) : ''}` : ''}`;
+}
+// mode 'safe' = hit count leads, 'value' = EV leads; rank/game text only on the day-wide list
+function tpRowHtml(c, mode, rank) {
+  const p = c.p;
+  const right = mode === 'value'
+    ? `<div class="tp-right v"><b>+${Math.round(c.ev)}% EV</b><span>${esc(tpEvText(c).split(' · ')[1] || '')}</span><span>${c.hits} of 5 last 5</span></div>`
+    : `<div class="tp-right"><b>${c.hits} of 5</b><span>last 5 games</span>${c.ev != null ? `<em>${esc(tpEvText(c))}</em>` : ''}</div>`;
+  return `<a href="#/p/${encodeURIComponent(p.id)}" class="tp-row${c.hits === 5 ? ' perfect' : ''}">
+    ${rank ? `<div class="tp-rk">${rank}</div>` : ''}${pimg(p.player, p.img, 34)}
+    <div class="tp-main"><div class="tp-name">${esc(p.player)} <span class="muted" style="font-weight:400">· ${esc(p.team)} ${p.home ? 'vs' : '@'} ${esc(p.opp)}</span></div>
+      <div class="tp-sub">Over ${c.line} ${esc(p.label)}${p.src === 'est' ? ' · estimated line' : ''}</div>
+      <div class="tp-chips">${tpChips(c)}<span class="tpdots">${c.last5.map(h => `<u class="${h ? '' : 'x'}"></u>`).join('')}</span></div></div>
+    ${right}</a>`;
+}
+function topPropsHtml(gameId) {
+  if (!TP_SPORTS.has(SPORT)) return topPropsHtmlLegacy(gameId);
+  const { safe, value } = tpGameLists(gameId);
+  const sec = (title, tag, list, mode) => list.length
+    ? `<div class="tp-sec"><b>${title}</b><i>${tag} · ${list.length}</i></div>${list.map(c => tpRowHtml(c, mode)).join('')}` : '';
+  return `<div class="chartcard tp-card">
+    <div class="tp-head"><b>Top Props</b><span class="tp-badge">this game</span></div>
+    <p class="muted tp-note">Overs only. Every pick has an A- or better matchup and minutes/role steady or rising.
+      Safest = most of his last 5 games over the line; Best value = best real-book EV.</p>
+    ${sec('Safest', 'most likely to hit', safe, 'safe')}${sec('Best value', 'best price vs fair odds', value, 'value')}
+    ${safe.length || value.length ? '' : `<div class="muted tp-empty">No pick clears the must-haves for this game right now (A- matchup, minutes/role steady or rising, and 4+ of his last 5 over the line or a real positive EV).</div>`}
+  </div>`;
+}
+// Day-wide block ("Best bets of the day"): the next slate -- NBA/NHL = the next day with games, NFL = the next week.
+const BOD = { tab: 'all' };
+function tpSlate() {
+  const up = board.games.filter(g => g.state !== 'in' && g.state !== 'post').slice().sort((a, b) => a.date < b.date ? -1 : 1);
+  if (!up.length) return { games: [], label: '' };
+  if (SPORT === 'nfl' && up[0].week) return { games: up.filter(g => g.week === up[0].week), label: `Week ${up[0].week}` };
+  const dayOf = g => new Date(g.date).toLocaleDateString();
+  const first = dayOf(up[0]);
+  const same = up.filter(g => dayOf(g) === first);
+  const isToday = first === new Date().toLocaleDateString();
+  return { games: same, label: isToday ? 'Today' : new Date(up[0].date).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }) };
+}
+function renderBestOfDay() {
+  const el = $('#bestOfDay');
+  if (!el) return;
+  if (!board || !TP_SPORTS.has(SPORT)) { el.innerHTML = ''; return; }
+  let hidden = false;
+  try { hidden = localStorage.getItem(lsKey('pb_bod_hidden')) === '1'; } catch (e) {}
+  const setHidden = v => { try { localStorage.setItem(lsKey('pb_bod_hidden'), v ? '1' : '0'); } catch (e) {} renderBestOfDay(); };
+  const unit = SPORT === 'nfl' ? 'week' : 'day';
+  const { games, label } = tpSlate();
+  if (hidden) {
+    el.innerHTML = `<div class="bod-bar"><span class="muted">Best bets of the ${unit} (hidden)</span><button class="btn" id="bodShow">Show</button></div>`;
+    $('#bodShow').onclick = () => setHidden(false);
+    return;
+  }
+  const cands = tpCandidates(new Set(games.map(g => g.id)));
+  let list;
+  if (BOD.tab === 'safe') list = tpOnePerPlayer(cands.filter(c => c.hits >= TP_SAFE_MIN_HITS), tpCmp);
+  else if (BOD.tab === 'value') list = tpOnePerPlayer(cands.filter(c => c.ev != null), tpCmpEv);
+  else list = tpOnePerPlayer(cands, tpCmp);
+  list = list.slice(0, 8);
+  el.innerHTML = `<div class="bod">
+    <div class="bod-head"><b>Best bets of the ${unit}</b><span class="muted">${esc(label)} · top ${list.length || 8} across ${games.length} game${games.length === 1 ? '' : 's'}</span>
+      <div class="spacer"></div>
+      <div class="seg" id="bodTabs">${[['all', 'All'], ['safe', 'Safest'], ['value', 'Best value']].map(([k, l]) =>
+        `<button data-t="${k}" class="${BOD.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <button class="btn" id="bodHide" title="Hide this block (you can bring it back)">Hide</button></div>
+    <p class="muted tp-note" style="margin:0 0 8px">Highest hit rate over his last 5 games first. Overs only, and every pick has an A- or better matchup and minutes/role steady or rising.</p>
+    ${list.length ? list.map((c, i) => tpRowHtml(c, BOD.tab === 'value' ? 'value' : 'safe', i + 1)).join('')
+      : `<div class="muted tp-empty">Nothing clears the must-haves for this ${unit} yet.</div>`}</div>`;
+  document.querySelectorAll('#bodTabs button').forEach(b => b.onclick = () => { BOD.tab = b.dataset.t; renderBestOfDay(); });
+  $('#bodHide').onclick = () => setHidden(true);
 }
 function playerStreaks() {
   const out = [];

@@ -475,6 +475,38 @@ def upcoming_games(days_ahead=14):
     return games
 
 
+def role_trend(hist, n_min=8):
+    """[avg minutes over his last 3 games played, avg over his last 10] -- the Top Props "minutes steady or
+    rising" check. None until he has enough games to say."""
+    m = hist.minutes[hist.minutes >= 1]
+    if len(m) < n_min:
+        return None
+    return [round(float(m.tail(3).mean()), 1), round(float(m.tail(10).mean()), 1), "min"]
+
+
+def usual_total(hist, game_tot):
+    """Average final combined score of his last 10 games -- the scoring environment his recent numbers came from."""
+    t = game_tot.reindex(hist.game_id.tail(10)).dropna()
+    return round(float(t.mean()), 1) if len(t) >= 6 else None
+
+
+def rotation_minutes(df, latest, window=10, need=7, thr=24.0):
+    """{athlete_id: avg minutes} for each team's current rotation players -- those who played at least `need`
+    of their team's last `window` games and averaged `thr`+ minutes. Top Props adds up the ones ruled Out or
+    Doubtful tonight: a fresh absence like that is where a teammate's minutes are about to jump."""
+    out = {}
+    for team, grp in df.groupby("team"):
+        last = grp.groupby("game_id").sw.min().sort_values().tail(window).index
+        if len(last) < window:
+            continue
+        sub = grp[grp.game_id.isin(last)]
+        for aid, g in sub.groupby("athlete_id"):
+            avg = float(g.minutes.sum()) / window
+            if (g.minutes >= 1).sum() >= need and avg >= thr and aid in latest.index and latest.loc[aid, "team"] == team:
+                out[str(aid)] = round(avg, 1)
+    return out
+
+
 def defense_ranks(df):
     """Rank all 30 teams by average allowed per game to each position group (G/F/C)."""
     ranks, dvp = {}, {}
@@ -691,6 +723,10 @@ def build_board():
     # reused for every game he plays in (the old loop re-sliced the whole table and called itertuples on a
     # ~40-column frame for every player x market x game, ~66,000 times).
     player_cache = {}
+    # Final combined score of every game on file, so a player's "usual game total" (the scoring
+    # environment his own recent numbers came from) can be compared with tonight's posted total.
+    game_tot = df.groupby("game_id")["pts"].sum()
+    rot = rotation_minutes(df, latest)
 
     def player_data(aid, markets):
         c = player_cache.get(aid)
@@ -698,7 +734,7 @@ def build_board():
             hist = df[df.athlete_id == aid]
             hl = hist.tail(20)
             c = player_cache[aid] = {"recent_min": hist.minutes.tail(8).mean(), "empty": hl.empty, "hl": hl,
-                                    "vals": {}, "est": {}}
+                                    "vals": {}, "est": {}, "role": role_trend(hist), "gt": usual_total(hist, game_tot)}
             if not hl.empty:
                 c["opp"], c["team"], c["sw"] = hl.opp.tolist(), hl.team.tolist(), hl.sw.tolist()
                 c["season"] = [season_of(d) for d in c["sw"]]
@@ -742,6 +778,7 @@ def build_board():
                                  1 if pdata["team"][i] == g["home"] else (0 if pdata["team"][i] == g["away"] else None),
                                  None, None] for i in range(n_log)],
                         "vol": round(float(recent_min), 1),
+                        "role": pdata["role"], "gt": pdata["gt"],
                         "ev_over": None, "ev_under": None, "fair_line": None, "real_alts": [],
                         "line_history": line_hist.get(f"{norm_name(p['name'])}|{mkey}|{g['id']}"),
                         "opp_rest": rest.get((opp, g["id"])),
@@ -779,7 +816,7 @@ def build_board():
                     [x.name, x.team, round(float(getattr(x, mkey)), 1), x.sw] for x in rows_rp.itertuples()]
 
     board = {"season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
-             "recent_players": recent_players,
+             "recent_players": recent_players, "rot": rot,
              "inj_week": 0, "built": time.time(), "has_key": bool(load_sgo_key()),
              "odds_pulled": sgo.get("pulled"), "odds_remaining": None,
              "has_proline_key": bool(proline.load_key()), "proline_pulled": sgo.get("proline_pulled")}

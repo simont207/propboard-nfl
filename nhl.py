@@ -476,6 +476,15 @@ def upcoming_games(days_ahead=14):
     return games
 
 
+def role_trend(hist, n_min=8):
+    """[avg ice time over his last 3 games played, avg over his last 10] -- the Top Props "ice time steady or
+    rising" check. None until he has enough games to say."""
+    m = hist.minutes[hist.minutes >= 1]
+    if len(m) < n_min:
+        return None
+    return [round(float(m.tail(3).mean()), 1), round(float(m.tail(10).mean()), 1), "min"]
+
+
 def defense_ranks(df):
     """Rank all 32 teams by average allowed per game to each position group (F/D/G)."""
     ranks, dvp = {}, {}
@@ -705,7 +714,7 @@ def build_board():
             hist = df[df.athlete_id == aid]
             hl = hist.tail(20)
             c = player_cache[aid] = {"recent_min": hist.minutes.tail(8).mean(), "empty": hl.empty, "hl": hl,
-                                    "vals": {}, "est": {}}
+                                    "vals": {}, "est": {}, "role": role_trend(hist)}
             if not hl.empty:
                 c["opp"], c["team"], c["sw"] = hl.opp.tolist(), hl.team.tolist(), hl.sw.tolist()
                 c["season"] = [season_of(d) for d in c["sw"]]
@@ -749,6 +758,7 @@ def build_board():
                                  1 if pdata["team"][i] == g["home"] else (0 if pdata["team"][i] == g["away"] else None),
                                  None, None] for i in range(n_log)],
                         "vol": round(float(recent_min), 1),
+                        "role": pdata["role"],
                         "ev_over": None, "ev_under": None, "fair_line": None, "real_alts": [],
                         "line_history": line_hist.get(f"{norm_name(p['name'])}|{mkey}|{g['id']}"),
                         "opp_rest": rest.get((opp, g["id"])),

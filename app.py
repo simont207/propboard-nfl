@@ -1624,6 +1624,25 @@ def build_board():
     rows = []
     loop_cols = sorted({"game_id", "team", "season", "week", "opponent_team", *MARKETS,
                         *(vcol for _, _, (vcol, _) in MARKETS.values())})
+    role_cache, total_cache = {}, {}
+
+    def role_for(pid, hist, vcol):
+        """[usage over his last 3 games, usage over his last 6, which usage stat] -- the Top Props "role steady
+        or rising" check (targets for receivers, carries for runners, attempts for passers...)."""
+        k = (pid, vcol)
+        if k not in role_cache:
+            s = hist[vcol].dropna()
+            role_cache[k] = ([round(float(s.tail(3).mean()), 1), round(float(s.tail(6).mean()), 1), vcol]
+                             if len(s) >= 4 else None)
+        return role_cache[k]
+
+    def usual_total_for(pid, hist):
+        """Average posted game total of his last 6 games -- the scoring environment his recent numbers came from."""
+        if pid not in total_cache:
+            t = [sched[g][3] for g in hist.game_id.tail(6) if g in sched and pd.notna(sched[g][3])]
+            total_cache[pid] = round(float(sum(t) / len(t)), 1) if len(t) >= 3 else None
+        return total_cache[pid]
+
     for g in games:
         for team, opp, home in ((g["home"], g["away"], 1), (g["away"], g["home"], 0)):
             t, o = ESPN_TO_NFLVERSE.get(team, team), ESPN_TO_NFLVERSE.get(opp, opp)
@@ -1672,6 +1691,7 @@ def build_board():
                         "log": [game_entry(sched, r, mkey) for r in
                                 hl[["game_id", "team", "season", "week", "opponent_team", mkey]].itertuples()],
                         "vol": round(float(vol), 1),
+                        "role": role_for(pid, hist, vcol), "gt": usual_total_for(pid, hist),
                         "tier": tiers.get((pid, mkey, g["id"])),
                         "ev_over": None, "ev_under": None, "real_alts": [], "fair_line": None,
                         "zone_edge": zone_edge(pid, o, zones_player, zones_def) if mkey in ZONE_MARKETS else None,
