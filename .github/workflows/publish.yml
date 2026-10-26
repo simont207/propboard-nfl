@@ -59,12 +59,6 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-latest
     env:
-      # SITE KEPT PRIVATE at Simon's request (2026-10-24): the public website is offline and he uses the
-      # app only on his Mac (double-click start.command). Any past timestamp makes build_static.py publish
-      # the plain "offline" page and skip all data/odds fetching. This workflow is also DISABLED in GitHub
-      # (gh workflow disable) so nothing runs. To put the site back online: `gh workflow enable
-      # publish.yml`, delete this TAKEDOWN_AT line, push.
-      TAKEDOWN_AT: "2026-10-01T00:00:00Z"
       # Only set on the once-daily 13:00 UTC run or a manual dispatch — never on every push, or on the
       # 3-hourly runs, which would blow past the free tier's monthly credit budget.
       SGO_API_KEY: ${{ (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 13 * * *') && secrets.SGO_API_KEY || '' }}
