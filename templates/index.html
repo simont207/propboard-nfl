@@ -208,6 +208,11 @@
   .tpdots u { display: inline-block; width: 9px; height: 12px; border-radius: 2px; background: var(--green); text-decoration: none; }
   .tpdots u.x { background: var(--red); }
   .tp-empty { font-size: 12px; padding: 8px 0 2px; }
+  .tp-st { font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 1px 7px; border-radius: 999px; border: 1px solid;
+    text-transform: uppercase; vertical-align: 1px; margin-right: 4px; }
+  .tp-st.s1 { color: var(--green); border-color: var(--green-dim); background: rgba(74,222,128,.12); }
+  .tp-st.s2 { color: var(--amber); border-color: #6b5316; background: rgba(251,191,36,.10); }
+  .tp-st.s3 { color: var(--muted); border-color: var(--line); }
   .bod { border: 1.5px dashed #6b5316; border-radius: 12px; padding: 12px 14px 8px; margin: 0 0 14px; }
   .bod-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
   .bod-head .seg button { padding: 4px 11px; font-size: 12px; }
@@ -2165,6 +2170,12 @@ function tpChips(c) {
   if (c.env != null && c.env >= TP_ENV_MIN[SPORT]) chips.push(`<span class="tpc o">High total ${c.total} · his usual ${Math.round(p.gt)}</span>`);
   return chips.join('');
 }
+function tpStartTag(p) {          // NBA: did he start most of his last 5 games (real ESPN starter flag, not tonight's lineup)
+  if (SPORT !== 'nba' || !p.starts || !p.starts[1]) return '';
+  const [s, n] = p.starts, f = s / n;
+  const [cls, label] = f >= 0.8 ? ['s1', 'Starter'] : f <= 0.2 ? ['s3', 'Bench'] : ['s2', 'Rotating'];
+  return `<span class="tp-st ${cls}" title="Started ${s} of his last ${n} games">${label}</span>`;
+}
 function tpEvText(c) {
   const p = c.p, bk = (p.books || []).find(b => b.line === p.line && b.over === p.over);
   return `+${Math.round(c.ev)}% EV${p.over != null ? ` · ${fmtOdds(p.over)}${bk ? ' ' + (TP_BOOK[bk.book] || bk.book) : ''}` : ''}`;
@@ -2177,7 +2188,7 @@ function tpRowHtml(c, mode, rank) {
     : `<div class="tp-right"><b>${c.hits} of 5</b><span>last 5 games</span>${c.ev != null ? `<em>${esc(tpEvText(c))}</em>` : ''}</div>`;
   return `<a href="#/p/${encodeURIComponent(p.id)}" class="tp-row${c.hits === 5 ? ' perfect' : ''}">
     ${rank ? `<div class="tp-rk">${rank}</div>` : ''}${pimg(p.player, p.img, 34)}
-    <div class="tp-main"><div class="tp-name">${esc(p.player)} <span class="muted" style="font-weight:400">· ${esc(p.team)} ${p.home ? 'vs' : '@'} ${esc(p.opp)}</span></div>
+    <div class="tp-main"><div class="tp-name">${esc(p.player)} ${tpStartTag(p)}<span class="muted" style="font-weight:400">· ${esc(p.team)} ${p.home ? 'vs' : '@'} ${esc(p.opp)}</span></div>
       <div class="tp-sub">Over ${c.line} ${esc(p.label)}${p.src === 'est' ? ' · estimated line' : ''}</div>
       <div class="tp-chips">${tpChips(c)}<span class="tpdots">${c.last5.map(h => `<u class="${h ? '' : 'x'}"></u>`).join('')}</span></div></div>
     ${right}</a>`;
