@@ -1632,6 +1632,9 @@ def build_board():
         k = (pid, vcol)
         if k not in role_cache:
             s = hist[vcol].dropna()
+            cur = hist.loc[hist.season == SEASON, vcol].dropna()
+            if len(cur) >= 5:          # 5+ games this season: last year's games stop counting toward his role
+                s = cur
             role_cache[k] = ([round(float(s.tail(3).mean()), 1), round(float(s.tail(6).mean()), 1), vcol]
                              if len(s) >= 4 else None)
         return role_cache[k]

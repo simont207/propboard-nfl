@@ -198,6 +198,7 @@
   .tpc.n { color: var(--blue); border-color: #27456b; background: rgba(96,165,250,.08); }
   .tpc.s { color: var(--amber); border-color: #6b5316; background: rgba(251,191,36,.08); }
   .tpc.o { color: #c4b5fd; border-color: #4b3d7a; background: rgba(167,139,250,.08); }
+  .tpc.w { color: var(--muted); border-color: var(--line); background: transparent; }
   .tp-right { text-align: right; flex-shrink: 0; }
   .tp-right b { display: block; font-size: 15px; font-weight: 700; color: var(--green); line-height: 1.15; }
   .tp-right.v b { color: var(--amber); }
@@ -2026,14 +2027,34 @@ function topPropsHtmlLegacy(gameId) {   // college football keeps the original c
 // Rules agreed with Simon (checked against last season's games first):
 //  * MUST-HAVES for every pick: an A- or better matchup, and minutes / role steady or rising (NBA minutes, NHL ice
 //    time, NFL usage: last 3 games vs his last 10 / last 6 -- not down more than 5%).
-//  * Safest: most of his last 5 games over the line first (every 5-of-5 before any 4-of-5). Ties go to the better
-//    matchup, then the bigger minutes jump, then the longer streak, then a rotation teammate being out (NBA), then a
-//    high game total (NBA / NFL).
-//  * Best value: biggest real-book EV, same must-haves.
+//  * Safest needs 4+ of his last 5 over the line, then ranks by a blended score (weights fitted on last season's games,
+//    see TP_W): recent hit rate counts most, then the minutes/role jump, a rotation teammate being out (NBA) and the
+//    game total vs his usual (NBA/NFL), with matchup and streak adding a little. A 4-of-5 with a star teammate out
+//    can outrank a flat 5-of-5 -- that is intended: the data said 5-of-5 vs 4-of-5 is a wash.
+//  * Only the main markets the weights were tested on (TP_MARKETS): steals/blocks/0.5-lines and defender or kicker
+//    props hit "4 of 5" for almost anyone, so they would just crowd the list.
+//  * Until a player has 5 games THIS season his "last 5" still includes last year's games: the pick is flagged and
+//    docked a little per old game. (The backend stops counting last year's games in the minutes/role baseline once he has 5.)
+//  * Best value: biggest real-book EV, same must-haves and markets.
 //  * Overs only -- both must-haves describe a player who is set up to go over.
 // College football has no minutes/role data, so it keeps the original card.
 const TP_SPORTS = new Set(['nfl', 'nba', 'nhl']);
 const TP_SAFE_MIN_HITS = 4;                     // of his last 5 games
+// Markets the blended score was backtested on (and straight sums of them). Everything else is left off the lists.
+const TP_MARKETS = {
+  nba: new Set(['pts', 'reb', 'ast', 'fg3m', 'pra', 'pr', 'pa', 'ra']),
+  nhl: new Set(['sog', 'points', 'assists', 'hits', 'blocks']),
+  nfl: new Set(['rec', 'rec_yds', 'rush_yds', 'rush_att', 'rush_rec_yds', 'pass_yds', 'pass_att', 'targets_m']),
+};
+// Log-odds weights per factor, fitted on last season's NBA/NHL games (Overs vs a book-style line, scored out of
+// sample). NFL has far fewer games, so its weights are shrunk toward the NBA/NHL pattern instead of trusting the fit.
+// env = this game's total vs the games his numbers came from; env_sd = how much that gap normally varies.
+const TP_W = {
+  nba: { form: 0.32, streak: 0.09, matchup: 0.09, trend: 0.25, out: 0.24, env: 0.13, env_sd: 0.035 },
+  nhl: { form: 0.48, streak: 0.08, matchup: 0.13, trend: 0.06, out: 0, env: 0, env_sd: 0.09 },
+  nfl: { form: 0.15, streak: 0.20, matchup: 0.12, trend: 0.20, out: 0, env: 0.25, env_sd: 0.09 },
+};
+const TP_EARLY_DOCK = 0.05;                     // score docked per last-year game still inside his "last 5"
 const TP_ROLE_LABEL = { min: 'Min', attempts: 'Pass att', carries: 'Carries', targets: 'Targets', touches: 'Touches',
   tackle_vol: 'Tackle chances', kick_vol: 'Kicks' };
 const TP_ENV_MIN = { nba: 0.03, nfl: 0.05 };    // game total this far above the games his numbers came from
@@ -2064,6 +2085,7 @@ function tpCandidate(p, ctx) {
   if (TRIVIAL_STREAK_MARKETS.has(p.market) || p.market === 'xp_made_m') return null;
   if (p.inj === 'Out' || p.inj === 'Doubtful') return null;
   if (p.src === 'est') return null;                                   // a "best bet" has to be a line a book actually offers
+  if (!TP_MARKETS[SPORT].has(p.market)) return null;                  // only the markets the score was tested on
   const r = p.role;
   if (!r || !(r[1] > 0) || r[0] < r[1] * 0.95) return null;          // must-have: minutes / role steady or rising
   const vals = p.log.map(x => x[3]);
@@ -2086,13 +2108,22 @@ function tpCandidate(p, ctx) {
   const total = g && g.total ? parseFloat(g.total) : null;
   const env = TP_ENV_MIN[SPORT] != null && p.gt && total ? total / p.gt - 1 : null;
   const out = SPORT === 'nba' ? ctx.teamOut.get(p.team) : null;
-  return { p, line, hits, streak, idx, ev, ratio: r[0] / r[1], total, env,
-    outMin: out ? out.min : 0, outList: out ? out.list : [], last5: vals.slice(-5).map(v => v > line) };
+  // Early season: fewer than 5 games this season means part of his "last 5" is last year's.
+  const curGames = p.log.filter(x => x[0] === board.season).length;
+  const oldInLast5 = Math.max(0, 5 - curGames);
+  const n = poolN(p.pos, p.market);
+  const mpct = p.opp_rank && n > 1 ? (n - p.opp_rank) / (n - 1) : 0.5;   // 1.0 = softest defense in the league
+  const w = TP_W[SPORT], ratio = r[0] / r[1];
+  const clip = (v, m) => Math.max(-m, Math.min(m, v));
+  const outMin = out ? out.min : 0;
+  const score = w.form * (hits - 2.5) / 2.5 + w.streak * Math.min(streak, 6) / 6 + w.matchup * (mpct - 0.5) * 2
+    + w.trend * clip(ratio - 1, 0.4) / 0.4 + w.out * Math.min(outMin, 60) / 30
+    + (env != null ? w.env * clip(env / w.env_sd, 2.5) / 2.5 : 0) - TP_EARLY_DOCK * oldInLast5;
+  return { p, line, hits, streak, idx, ev, ratio, total, env, score, oldInLast5,
+    outMin, outList: out ? out.list : [], last5: vals.slice(-5).map(v => v > line) };
 }
 function tpCmp(a, b) {
-  return (b.hits - a.hits) || (a.idx - b.idx) || (Math.round(b.ratio * 20) - Math.round(a.ratio * 20))
-    || (b.streak - a.streak) || (b.outMin - a.outMin) || ((b.env ?? -1) - (a.env ?? -1))
-    || ((b.ev ?? 0) - (a.ev ?? 0)) || a.p.player.localeCompare(b.p.player);
+  return (b.score - a.score) || (b.hits - a.hits) || ((b.ev ?? 0) - (a.ev ?? 0)) || a.p.player.localeCompare(b.p.player);
 }
 const tpCmpEv = (a, b) => (b.ev - a.ev) || tpCmp(a, b);
 function tpOnePerPlayer(list, cmp) {   // each player's single best prop for the game
@@ -2127,6 +2158,7 @@ function tpChips(c) {
   else { a = base.toFixed(1); b = now.toFixed(1); }
   chips.push(`<span class="tpc n">${TP_ROLE_LABEL[kind] || 'Role'} ${a} → ${b}</span>`);
   chips.push(`<span class="tpc s">${c.hits === 5 ? 'Perfect last 5' : c.streak >= 3 ? `Hit ${c.streak} straight` : `Missed ${5 - c.hits} of last 5`}</span>`);
+  if (c.oldInLast5 > 0) chips.push(`<span class="tpc w" title="He has fewer than 5 games this season, so part of his last 5 is from last year">Early season · ${c.oldInLast5} of last 5 from last year</span>`);
   if (c.outMin >= 20 && c.outList.length) {
     chips.push(`<span class="tpc o">${esc(c.outList[0].name)}${c.outList.length > 1 ? ` +${c.outList.length - 1}` : ''} out</span>`);
   }
@@ -2157,10 +2189,10 @@ function topPropsHtml(gameId) {
     ? `<div class="tp-sec"><b>${title}</b><i>${tag} · ${list.length}</i></div>${list.map(c => tpRowHtml(c, mode)).join('')}` : '';
   return `<div class="chartcard tp-card">
     <div class="tp-head"><b>Top Props</b><span class="tp-badge">this game</span></div>
-    <p class="muted tp-note">Overs only. Every pick has an A- or better matchup and minutes/role steady or rising.
-      Safest = most of his last 5 games over the line; Best value = best real-book EV.</p>
+    <p class="muted tp-note">Overs only, main markets. Every pick has an A- or better matchup and minutes/role steady or rising.
+      Safest = 4+ of his last 5 over the line, ranked by a blended score (recent hit rate, minutes/role jump, teammate out, game total, matchup, streak); Best value = best real-book EV.</p>
     ${sec('Safest', 'most likely to hit', safe, 'safe')}${sec('Best value', 'best price vs fair odds', value, 'value')}
-    ${safe.length || value.length ? '' : `<div class="muted tp-empty">No pick clears the must-haves for this game right now (A- matchup, minutes/role steady or rising, and 4+ of his last 5 over the line or a real positive EV).</div>`}
+    ${safe.length || value.length ? '' : `<div class="muted tp-empty">No pick clears the must-haves for this game right now (main market, A- matchup, minutes/role steady or rising, and 4+ of his last 5 over the line or a real positive EV).</div>`}
   </div>`;
 }
 // Day-wide block ("Best bets of the day"): the next slate -- NBA/NHL = the next day with games, NFL = the next week.
@@ -2168,7 +2200,13 @@ const BOD = { tab: 'all' };
 function tpSlate() {
   const up = board.games.filter(g => g.state !== 'in' && g.state !== 'post').slice().sort((a, b) => a.date < b.date ? -1 : 1);
   if (!up.length) return { games: [], label: '' };
-  if (SPORT === 'nfl' && up[0].week) return { games: up.filter(g => g.week === up[0].week), label: `Week ${up[0].week}` };
+  if (SPORT === 'nfl' && up[0].week) {
+    // Monday night with one game left shouldn't leave the block empty: roll into next week when this one is nearly done.
+    let games = up.filter(g => g.week === up[0].week), label = `Week ${up[0].week}`;
+    const next = games.length < 3 ? up.find(g => g.week > up[0].week) : null;
+    if (next) { games = games.concat(up.filter(g => g.week === next.week)); label += ` + ${next.week}`; }
+    return { games, label };
+  }
   const dayOf = g => new Date(g.date).toLocaleDateString();
   const first = dayOf(up[0]);
   const same = up.filter(g => dayOf(g) === first);
@@ -2193,7 +2231,7 @@ function renderBestOfDay() {
   let list;
   if (BOD.tab === 'safe') list = tpOnePerPlayer(cands.filter(c => c.hits >= TP_SAFE_MIN_HITS), tpCmp);
   else if (BOD.tab === 'value') list = tpOnePerPlayer(cands.filter(c => c.ev != null), tpCmpEv);
-  else list = tpOnePerPlayer(cands, tpCmp);
+  else list = tpOnePerPlayer(cands.filter(c => c.hits >= TP_SAFE_MIN_HITS || (c.ev != null && c.hits >= 3)), tpCmp);
   list = list.slice(0, 8);
   el.innerHTML = `<div class="bod">
     <div class="bod-head"><b>Best bets of the ${unit}</b><span class="muted">${esc(label)} · top ${list.length || 8} across ${games.length} game${games.length === 1 ? '' : 's'}</span>
@@ -2201,7 +2239,7 @@ function renderBestOfDay() {
       <div class="seg" id="bodTabs">${[['all', 'All'], ['safe', 'Safest'], ['value', 'Best value']].map(([k, l]) =>
         `<button data-t="${k}" class="${BOD.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <button class="btn" id="bodHide" title="Hide this block (you can bring it back)">Hide</button></div>
-    <p class="muted tp-note" style="margin:0 0 8px">Highest hit rate over his last 5 games first. Overs only, and every pick has an A- or better matchup and minutes/role steady or rising.</p>
+    <p class="muted tp-note" style="margin:0 0 8px">Ranked by a blended score: recent hit rate counts most, then minutes/role jump, teammate out, game total, matchup and streak. Overs only, main markets, and every pick has an A- or better matchup and minutes/role steady or rising.</p>
     ${list.length ? list.map((c, i) => tpRowHtml(c, BOD.tab === 'value' ? 'value' : 'safe', i + 1)).join('')
       : `<div class="muted tp-empty">Nothing clears the must-haves for this ${unit} yet.</div>`}</div>`;
   document.querySelectorAll('#bodTabs button').forEach(b => b.onclick = () => { BOD.tab = b.dataset.t; renderBestOfDay(); });

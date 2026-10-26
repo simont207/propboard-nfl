@@ -475,13 +475,19 @@ def upcoming_games(days_ahead=14):
     return games
 
 
-def role_trend(hist, n_min=8):
+def role_trend(hist, cur_season, n_min=8):
     """[avg minutes over his last 3 games played, avg over his last 10] -- the Top Props "minutes steady or
-    rising" check. None until he has enough games to say."""
-    m = hist.minutes[hist.minutes >= 1]
-    if len(m) < n_min:
+    rising" check. Once he has 5+ games THIS season only this season's games count (last April's rest-heavy
+    games no longer drag the baseline); before that it blends in last season's games. None until he has
+    enough games to say."""
+    m = hist[hist.minutes >= 1]
+    cur = m[[season_of(d) == cur_season for d in m.sw]]
+    if len(cur) >= 5:
+        m = cur
+    elif len(m) < n_min:
         return None
-    return [round(float(m.tail(3).mean()), 1), round(float(m.tail(10).mean()), 1), "min"]
+    mins = m.minutes
+    return [round(float(mins.tail(3).mean()), 1), round(float(mins.tail(10).mean()), 1), "min"]
 
 
 def usual_total(hist, game_tot):
@@ -734,7 +740,7 @@ def build_board():
             hist = df[df.athlete_id == aid]
             hl = hist.tail(20)
             c = player_cache[aid] = {"recent_min": hist.minutes.tail(8).mean(), "empty": hl.empty, "hl": hl,
-                                    "vals": {}, "est": {}, "role": role_trend(hist), "gt": usual_total(hist, game_tot)}
+                                    "vals": {}, "est": {}, "role": role_trend(hist, SEASON), "gt": usual_total(hist, game_tot)}
             if not hl.empty:
                 c["opp"], c["team"], c["sw"] = hl.opp.tolist(), hl.team.tolist(), hl.sw.tolist()
                 c["season"] = [season_of(d) for d in c["sw"]]
