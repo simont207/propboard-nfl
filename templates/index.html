@@ -2290,8 +2290,7 @@ function renderBestOfDay() {
 // upcoming game, the five players who usually start for each team with BettingPros-style columns (this season / last
 // season / both) plus our chance, which starts from each team's tip-off edge and then weighs his shots per game, how
 // often he takes his team's first shot and his FG%. Projected starters, not a confirmed lineup.
-const FB = { view: 'both', game: '', sort: 'c', dir: -1 };
-const FB_VIEWS = [['both', 'Both seasons'], ['cur', 'This season'], ['last', 'Last season']];
+const FB = { view: 'cur', game: '', sort: 'c', dir: -1 };   // every column shows THIS season only (the 'last'/'both' stats stay in the data but are not shown)
 const FB_SORT = { gs: r => r.v[FB.view][0], tip: r => r.v[FB.view][1], shot: r => r.v[FB.view][2], fb: r => r.v[FB.view][3],
   fbg: r => r.v[FB.view][4], rank: r => r.v.cur[5], tfb: r => r.v[FB.view][6], c: r => r.c };   // rank is always this season
 let FB_IDX = null;
@@ -2335,20 +2334,20 @@ function fbTableHtml(rows) {
     <tbody>${fbRows(rows).map(fbRowHtml).join('')}</tbody></table></div>`;
 }
 function fbControlsHtml(games) {
-  return `<div class="filters" style="margin:6px 0 10px">
-    ${games ? `<label>Matchup <select class="fb-game"><option value="">All matchups</option>${games.map(g =>
-      `<option value="${esc(g.id)}" ${FB.game === g.id ? 'selected' : ''}>${esc(g.away)} @ ${esc(g.home)} · ${fmtTime(g.date)}</option>`).join('')}</select></label>` : ''}
-    <label>Stats from <select class="fb-view">${FB_VIEWS.map(([k, l]) => `<option value="${k}" ${FB.view === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>`;
+  if (!games) return '';
+  return `<div class="filters" style="margin:6px 0 10px"><label>Matchup <select class="fb-game"><option value="">All matchups</option>${games.map(g =>
+    `<option value="${esc(g.id)}" ${FB.game === g.id ? 'selected' : ''}>${esc(g.away)} @ ${esc(g.home)} · ${fmtTime(g.date)}</option>`).join('')}</select></label></div>`;
 }
 function fbTipHtml(gi, g) {
   if (!gi) return '';
-  const jt = team => { const j = gi.j[team]; return j && j.n ? `${esc(j.n)} wins ${j.r}% of his tips${j.k ? ` (${j.k} tips)` : ''}` : 'no regular jumper on file'; };
+  const jt = team => { const j = gi.j[team]; return j && j.n ? `${esc(j.n)} wins ${j.r}% of his tips${j.k ? ` (${j.k} tips over two seasons)` : ''}` : 'no regular jumper on file'; };
   const sa = gi.sf[g.away], sh = 100 - sa;
   return `<div class="fb-tip"><div class="muted" style="font-size:12px;margin-bottom:6px">Tip-off edge: ${esc(g.away)} — ${jt(g.away)} · ${esc(g.home)} — ${jt(g.home)}</div>
     <div class="fb-bar2"><i style="width:${sa}%;background:var(--blue)"></i><i style="width:${sh}%;background:var(--green)"></i></div>
     <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:6px"><span><b>${esc(g.away)} ${sa}%</b> to score first</span><span><b>${esc(g.home)} ${sh}%</b></span></div></div>`;
 }
-const FB_NOTE = `Chance = the team's tip-off edge, then his shots per game, how often he takes his team's first shot and his FG%; the ten starters add up to 100%.
+const FB_NOTE = `Every column in the table is this season only. Chance = the team's tip-off edge, then his shots per game, how often he takes his team's first shot and his FG%;
+  those inputs also lean on last season so a few early games can't swing them. The ten starters add up to 100%.
   Projected starters (the five who usually start, minus anyone ruled out), not a confirmed lineup. Counts any made shot, free throws included.
   On last season's games it hadn't seen, the top pick was right about 17% of the time, so this finds the likelier scorers, not a sure thing.`;
 function firstBasketCardHtml(g) {
@@ -2356,13 +2355,11 @@ function firstBasketCardHtml(g) {
   const rows = board.first_basket.rows.filter(r => r.g === g.id);
   if (!rows.length) return '';
   const gi = board.first_basket.games.find(x => x.id === g.id);
-  const games = Math.min(...rows.map(r => r.v.cur[7]));
   return `<div class="chartcard tp-card fbcard"><div class="tp-head"><b>First basket</b><span class="tp-badge">this game</span></div>
-    <p class="muted tp-note">${FB_NOTE}${games < 12 ? ` Only ${games} games played this season so far, so "Both seasons" is steadier than "This season".` : ''}</p>
+    <p class="muted tp-note">${FB_NOTE}</p>
     ${fbTipHtml(gi, g)}${fbControlsHtml(null)}${fbTableHtml(rows)}</div>`;
 }
 function fbWire(root, rerender) {
-  root.querySelectorAll('.fb-view').forEach(s => s.onchange = e => { FB.view = e.target.value; rerender(); });
   root.querySelectorAll('.fb-game').forEach(s => s.onchange = e => { FB.game = e.target.value; rerender(); });
   root.querySelectorAll('th[data-fbk]').forEach(t => t.onclick = () => {
     const k = t.dataset.fbk;
