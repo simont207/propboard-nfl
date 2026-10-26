@@ -217,6 +217,24 @@
   .bod-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
   .bod-head .seg button { padding: 4px 11px; font-size: 12px; }
   .bod-bar { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; }
+  /* First basket (NBA) */
+  #btnFirst { background: #fbbf24; border-color: #fbbf24; color: #2a1c00; font-weight: 600; }
+  #btnFirst:hover { background: #fcd34d; border-color: #fcd34d; }
+  .fbwrap { overflow-x: auto; }
+  .fbt { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .fbt th { text-align: right; font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    padding: 8px 7px; cursor: pointer; white-space: nowrap; border-bottom: 1px solid var(--line); user-select: none; }
+  .fbt th.l, .fbt td.l { text-align: left; }
+  .fbt td { padding: 8px 7px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+  .fbt tbody tr:hover td { background: var(--panel2); }
+  .fbt a { color: inherit; text-decoration: none; }
+  .fbt a:hover { text-decoration: underline; }
+  .fb-ch { color: var(--green); font-weight: 700; font-size: 15px; }
+  .fb-bar { height: 4px; border-radius: 999px; background: var(--line); margin-top: 3px; overflow: hidden; width: 70px; margin-left: auto; }
+  .fb-bar i { display: block; height: 100%; background: var(--green); }
+  .fb-tip { background: var(--panel2); border-radius: 8px; padding: 10px 12px; margin: 8px 0 10px; }
+  .fb-bar2 { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: var(--line); }
+  .fb-bar2 i { display: block; height: 100%; }
   @media (max-width: 600px) {          /* phone: the hit count / EV drops under the player instead of squeezing the chips */
     .tp-row { flex-wrap: wrap; }
     .tp-right { flex: 0 0 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; text-align: left; }
@@ -436,6 +454,7 @@ window.onerror = function (msg, src, line) {
     <div class="results" id="gresults" hidden></div>
   </div>
   <div class="spacer"></div>
+  <a class="btn" id="btnFirst" href="#/first-basket" hidden>First basket</a>
   <a class="btn" id="btnInsights" href="#/insights">Insights</a>
   <div class="seg" id="oddsFmt" title="How odds are shown (Odds columns, alt lines)">
     <button data-f="american" class="on">American</button>
@@ -488,6 +507,7 @@ window.onerror = function (msg, src, line) {
 <div id="gameView" hidden></div>
 <div id="compareView" hidden></div>
 <div id="insightsView" hidden></div>
+<div id="fbView" hidden></div>
 </main>
 <footer class="disc">
   <details class="howworks">
@@ -995,6 +1015,7 @@ function renderTop() {
     : 'Key found, never pulled yet.';
   if ($('#btnPullSgo')) $('#btnPullSgo').disabled = SPORT !== 'nfl';
   renderBestOfDay();
+  $('#btnFirst').hidden = !(SPORT === 'nba' && board.first_basket);
   if ($('#plInfo')) $('#plInfo').textContent = (SPORT === 'ncaaf' ? 'College football gets injury tags only (no sportsbook lines yet). ' : '')
     + (!board.has_proline_key ? 'No key found at data/proline_key.txt.'
     : board.proline_pulled ? `Last pulled ${new Date(board.proline_pulled * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`
@@ -1033,12 +1054,14 @@ function setLine(p, raw) {
 function showView(v) {
   $('#boardView').hidden = v !== 'board'; $('#playerView').hidden = v !== 'player'; $('#gameView').hidden = v !== 'game';
   $('#compareView').hidden = v !== 'compare'; $('#insightsView').hidden = v !== 'insights';
+  $('#fbView').hidden = v !== 'firstbasket';
 }
 function route() {
   if (!board) return;
   const pm = location.hash.match(/^#\/p\/(.+)$/), gm = location.hash.match(/^#\/g\/(.+)$/);
   const cm = location.hash.match(/^#\/compare(?:\/(.*))?$/);
   const im = location.hash === '#/insights';
+  const fm = location.hash === '#/first-basket';
   const p = pm && board.props.find(x => x.id === decodeURIComponent(pm[1]));
   const g = gm && board.games.find(x => x.id === decodeURIComponent(gm[1]));
   const wasBoard = !$('#boardView').hidden;
@@ -1053,6 +1076,12 @@ function route() {
     if (wasBoard) route.y = window.scrollY;
     showView('insights');
     renderInsights();
+    return;
+  }
+  if (fm) {
+    if (wasBoard) route.y = window.scrollY;
+    showView('firstbasket');
+    renderFirstBasket();
     return;
   }
   if (!p && !g) {
@@ -2256,6 +2285,110 @@ function renderBestOfDay() {
   document.querySelectorAll('#bodTabs button').forEach(b => b.onclick = () => { BOD.tab = b.dataset.t; renderBestOfDay(); });
   $('#bodHide').onclick = () => setHidden(true);
 }
+// ---- First basket (NBA) --------------------------------------------------------------------------------
+// Who is most likely to score a game's first basket. board.first_basket (nba.py first_basket_board) carries, for each
+// upcoming game, the five players who usually start for each team with BettingPros-style columns (this season / last
+// season / both) plus our chance, which starts from each team's tip-off edge and then weighs his shots per game, how
+// often he takes his team's first shot and his FG%. Projected starters, not a confirmed lineup.
+const FB = { view: 'both', game: '', sort: 'c', dir: -1 };
+const FB_VIEWS = [['both', 'Both seasons'], ['cur', 'This season'], ['last', 'Last season']];
+const FB_SORT = { gs: r => r.v[FB.view][0], tip: r => r.v[FB.view][1], shot: r => r.v[FB.view][2], fb: r => r.v[FB.view][3],
+  fbg: r => r.v[FB.view][4], rank: r => r.v[FB.view][5], tfb: r => r.v[FB.view][6], c: r => r.c };
+let FB_IDX = null;
+function fbProp(r) {          // one of his props for this game (for the player-page link and his injury tag)
+  if (!FB_IDX || FB_IDX.board !== board) {
+    const map = new Map();
+    board.props.forEach(p => { const k = p.pid + '|' + p.game; if (!map.has(k)) map.set(k, p); });
+    FB_IDX = { board, map };
+  }
+  return FB_IDX.map.get(r.pid + '|' + r.g);
+}
+function fbRows(rows) {
+  const f = FB_SORT[FB.sort];
+  return rows.slice().sort((a, b) => {
+    const x = f(a), y = f(b);
+    if (x == null && y == null) return b.c - a.c;
+    if (x == null) return 1;
+    if (y == null) return -1;
+    return (x - y) * FB.dir || (b.c - a.c);
+  });
+}
+function fbRowHtml(r) {
+  const v = r.v[FB.view], pr = fbProp(r), pct = x => x == null ? '–' : x + '%';
+  const nm = pr ? `<a href="#/p/${encodeURIComponent(pr.id)}">${esc(r.n)}</a>` : esc(r.n);
+  const inj = pr && pr.inj ? ` <span class="tag ${esc(pr.inj)}">${esc(pr.inj[0])}</span>` : '';
+  return `<tr><td class="l"><div style="display:flex;align-items:center;gap:10px">${pimg(r.n, r.img, 34)}
+      <div><div style="font-weight:600">${nm}${inj}</div><div class="muted" style="font-size:12px">${esc(r.t)}</div></div></div></td>
+    <td>${r.h ? 'vs.' : 'at'} ${esc(r.o)}</td>
+    <td><div class="fb-ch">${r.c.toFixed(1)}%</div><div class="fb-bar"><i style="width:${Math.min(100, r.c / 18 * 100)}%"></i></div></td>
+    <td>${v[0]}</td><td>${pct(v[1])}</td><td>${pct(v[2])}</td>
+    <td>${v[3]}${v[6] ? ` <span class="muted">of ${v[6]}</span>` : ''}</td><td>${pct(v[4])}</td><td>${v[5] ? ord(v[5]) : '–'}</td><td>${v[6]}</td></tr>`;
+}
+function fbTableHtml(rows) {
+  const arrow = k => FB.sort === k ? (FB.dir < 0 ? ' ▼' : ' ▲') : '';
+  const th = (k, label) => `<th data-fbk="${k}" title="Click to sort">${label}${arrow(k)}</th>`;
+  return `<div class="fbwrap"><table class="fbt"><thead><tr><th class="l" style="cursor:default">Player</th><th style="cursor:default">Matchup</th>
+    ${th('c', 'Chance')}${th('gs', 'Gms started')}${th('tip', 'Tip win %')}${th('shot', '1st shot %')}${th('fb', '1st baskets made')}${th('fbg', '1st basket / gms')}
+    ${th('rank', '1st basket rank')}${th('tfb', 'Team 1st baskets')}</tr></thead>
+    <tbody>${fbRows(rows).map(fbRowHtml).join('')}</tbody></table></div>`;
+}
+function fbControlsHtml(games) {
+  return `<div class="filters" style="margin:6px 0 10px">
+    ${games ? `<label>Matchup <select class="fb-game"><option value="">All matchups</option>${games.map(g =>
+      `<option value="${esc(g.id)}" ${FB.game === g.id ? 'selected' : ''}>${esc(g.away)} @ ${esc(g.home)} · ${fmtTime(g.date)}</option>`).join('')}</select></label>` : ''}
+    <label>Stats from <select class="fb-view">${FB_VIEWS.map(([k, l]) => `<option value="${k}" ${FB.view === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>`;
+}
+function fbTipHtml(gi, g) {
+  if (!gi) return '';
+  const jt = team => { const j = gi.j[team]; return j && j.n ? `${esc(j.n)} wins ${j.r}% of his tips${j.k ? ` (${j.k} tips)` : ''}` : 'no regular jumper on file'; };
+  const sa = gi.sf[g.away], sh = 100 - sa;
+  return `<div class="fb-tip"><div class="muted" style="font-size:12px;margin-bottom:6px">Tip-off edge: ${esc(g.away)} — ${jt(g.away)} · ${esc(g.home)} — ${jt(g.home)}</div>
+    <div class="fb-bar2"><i style="width:${sa}%;background:var(--blue)"></i><i style="width:${sh}%;background:var(--green)"></i></div>
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:6px"><span><b>${esc(g.away)} ${sa}%</b> to score first</span><span><b>${esc(g.home)} ${sh}%</b></span></div></div>`;
+}
+const FB_NOTE = `Chance = the team's tip-off edge, then his shots per game, how often he takes his team's first shot and his FG%; the ten starters add up to 100%.
+  Projected starters (the five who usually start, minus anyone ruled out), not a confirmed lineup. Counts any made shot, free throws included.
+  On last season's games it hadn't seen, the top pick was right about 17% of the time, so this finds the likelier scorers, not a sure thing.`;
+function firstBasketCardHtml(g) {
+  if (SPORT !== 'nba' || !board.first_basket) return '';
+  const rows = board.first_basket.rows.filter(r => r.g === g.id);
+  if (!rows.length) return '';
+  const gi = board.first_basket.games.find(x => x.id === g.id);
+  const games = Math.min(...rows.map(r => r.v.cur[7]));
+  return `<div class="chartcard tp-card fbcard"><div class="tp-head"><b>First basket</b><span class="tp-badge">this game</span></div>
+    <p class="muted tp-note">${FB_NOTE}${games < 12 ? ` Only ${games} games played this season so far, so "Both seasons" is steadier than "This season".` : ''}</p>
+    ${fbTipHtml(gi, g)}${fbControlsHtml(null)}${fbTableHtml(rows)}</div>`;
+}
+function fbWire(root, rerender) {
+  root.querySelectorAll('.fb-view').forEach(s => s.onchange = e => { FB.view = e.target.value; rerender(); });
+  root.querySelectorAll('.fb-game').forEach(s => s.onchange = e => { FB.game = e.target.value; rerender(); });
+  root.querySelectorAll('th[data-fbk]').forEach(t => t.onclick = () => {
+    const k = t.dataset.fbk;
+    if (FB.sort === k) FB.dir = -FB.dir; else { FB.sort = k; FB.dir = k === 'rank' ? 1 : -1; }
+    rerender();
+  });
+}
+function renderFirstBasket() {
+  const el = $('#fbView');
+  if (SPORT !== 'nba' || !board.first_basket) {
+    el.innerHTML = `<a class="back" href="#/">← Back to board</a><div class="empty" style="margin-top:20px"><div class="msg">First basket is built for NBA</div>
+      <div class="sub">Switch to NBA to see who is most likely to score each game's first basket.</div></div>`;
+    return;
+  }
+  const { games, label } = tpSlate();
+  const have = new Set(board.first_basket.games.map(x => x.id));
+  const fbGames = games.filter(g => have.has(g.id));
+  if (FB.game && !fbGames.some(g => g.id === FB.game)) FB.game = '';
+  const rows = board.first_basket.rows.filter(r => FB.game ? r.g === FB.game : fbGames.some(g => g.id === r.g));
+  const one = FB.game ? fbGames.find(g => g.id === FB.game) : null;
+  el.innerHTML = `<a class="back" href="#/">← Back to board</a>
+    <div class="hero" style="align-items:center"><div><div style="font-weight:800;font-size:20px">First basket</div>
+      <div class="muted">${esc(label)} · ${fbGames.length} game${fbGames.length === 1 ? '' : 's'} · projected starters</div></div></div>
+    <p class="muted tp-note" style="margin:10px 0 0">${FB_NOTE}</p>
+    ${one ? fbTipHtml(board.first_basket.games.find(x => x.id === one.id), one) : ''}
+    ${fbControlsHtml(fbGames)}${rows.length ? fbTableHtml(rows) : '<div class="muted tp-empty">No games with first-basket data yet.</div>'}`;
+  fbWire(el, renderFirstBasket);
+}
 function playerStreaks() {
   const out = [];
   // NCAAF's box scores only go back HIST_WEEKS=6 (see cfb.py) -- nflverse/NBA/NHL carry 30+ games of
@@ -2644,6 +2777,7 @@ function renderGame(g) {
       <div class="spacer"></div><button class="btn" id="gvBoard">Show this game on the board</button>
     </div>
     ${topPropsHtml(g.id)}
+    ${firstBasketCardHtml(g)}
     <div class="pills" style="margin-top:14px"><button class="pill ${GV.market === 'all' ? 'on' : ''}" data-m="all">All props</button>
       ${present.map(([k, l]) => `<button class="pill ${GV.market === k ? 'on' : ''}" data-m="${k}">${esc(l)}</button>`).join('')}</div>
     <div class="filters">
@@ -2667,6 +2801,7 @@ function renderGame(g) {
   $('#gvWin').onchange = e => { GV.win = +e.target.value; renderGame(g); };
   $('#gvMiss').onchange = e => { GV.miss = +e.target.value; renderGame(g); };
   $('#gvBoard').onclick = () => openGameOnBoard(g.id, true);
+  fbWire($('#gameView'), () => renderGame(g));
 }
 
 let FILTERS_OPEN = false;

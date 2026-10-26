@@ -674,6 +674,213 @@ def reapply_lines(board):
     board["has_proline_key"] = bool(proline.load_key())
 
 
+# ------------------------------------------------- first basket (who scores the game's first basket) ---
+FIRSTBASKET_FILE = DATA / "firstbasket_v1.json"       # one small record per finished game, parsed once
+
+
+def parse_first_basket(summary):
+    """Who started, who made the game's first basket, who took each team's first shot, who jumped for the
+    tip and which team won it -- all read from one finished game's box score + play-by-play."""
+    h = summary.get("header", {})
+    comp = (h.get("competitions") or [{}])[0]
+    if (h.get("season") or {}).get("type") != 2:          # regular season only, like the rest of the board
+        return None
+    teams = {c["team"]["id"]: c["team"].get("abbreviation") for c in comp.get("competitors", [])}
+    starters = {}
+    for tb in (summary.get("boxscore") or {}).get("players", []):
+        ab = tb["team"].get("abbreviation")
+        for cat in tb.get("statistics", []):
+            for a in cat.get("athletes", []):
+                if a.get("starter") and not a.get("didNotPlay") and (a.get("athlete") or {}).get("id"):
+                    starters.setdefault(ab, []).append(str(a["athlete"]["id"]))
+    if len(starters) != 2 or any(len(v) != 5 for v in starters.values()):
+        return None
+    team_of = {p: t for t, ps in starters.items() for p in ps}
+    plays = [p for p in (summary.get("plays") or []) if (p.get("period") or {}).get("number") == 1]
+    made = next((p for p in plays if p.get("scoringPlay") and p.get("participants")), None)
+    if not made:
+        return None
+    scorer = str(made["participants"][0]["athlete"]["id"])
+    jb = next((p for p in plays[:8] if (p.get("type") or {}).get("text") == "Jumpball"), None)
+    jumpers, tip = None, None
+    if jb:
+        ids = [str(x["athlete"]["id"]) for x in jb.get("participants", []) if (x.get("athlete") or {}).get("id")][:2]
+        if len(ids) == 2 and all(i in team_of for i in ids) and team_of[ids[0]] != team_of[ids[1]]:
+            jumpers = [[i, team_of[i]] for i in ids]
+            tip = teams.get((jb.get("team") or {}).get("id"))       # the team that gained possession
+    first_fga = {}
+    for p in plays:
+        if p.get("shootingPlay") and "Free Throw" not in (p.get("type") or {}).get("text", "") and p.get("participants"):
+            pid = str(p["participants"][0]["athlete"]["id"])
+            t = team_of.get(pid)
+            if t and t not in first_fga:
+                first_fga[t] = pid
+                if len(first_fga) == 2:
+                    break
+    return {"id": str(h.get("id")), "date": comp.get("date"), "season": (h.get("season") or {}).get("year"),
+            "starters": starters, "scorer": scorer,
+            "scorer_team": teams.get((made.get("team") or {}).get("id")) or team_of.get(scorer),
+            "ft": "Free Throw" in (made.get("type") or {}).get("text", ""),
+            "tip": tip, "jumpers": jumpers, "first_fga": first_fga}
+
+
+def load_first_basket_games():
+    """Parsed first-basket records for every finished regular-season game on disk. Only games not seen before
+    are parsed (the first run reads them all, about a minute); the result is cached in FIRSTBASKET_FILE."""
+    try:
+        cache = json.loads(FIRSTBASKET_FILE.read_text())
+    except Exception:
+        cache = {}
+    added = 0
+    for f in GAMES_DIR.glob("*.json"):
+        gid = f.stem
+        if gid in cache:
+            continue
+        try:
+            data = json.loads(f.read_text())
+        except Exception:
+            continue
+        if not data.get("_final"):
+            continue
+        cache[gid] = parse_first_basket(data)             # None (not a usable regular-season game) is cached too
+        added += 1
+    if added:
+        FIRSTBASKET_FILE.write_text(json.dumps(cache))
+    return sorted((r for r in cache.values() if r), key=lambda r: r["date"] or "")
+
+
+def first_basket_board(df, latest, games, inj_map, season):
+    """The "First basket" table for every upcoming game: each team's projected five starters with BettingPros-style
+    columns (games started, tip win %, first-shot %, first baskets made, rank on the team, team first baskets for
+    this season / last season / both) and our chance that he scores the game's first basket.
+    chance  ~  team's chance to score first (from the two usual jumpers' tip results)  x  sqrt(shots per game)
+               x  sqrt(how often he takes his team's first shot)  x  his FG%,  scaled so the ten add up to 100%.
+    The exponents were fitted on last season's games (held-out top pick: right 17% of the time vs 10% for a coin flip
+    among starters, average top chance shown 15.5%)."""
+    recs = load_first_basket_games()
+    if not recs:
+        return None
+    last_season = season - 1
+    P, T, players_by_team = {}, {}, {}
+    tip_w, tip_n, tip_first = {}, {}, [0, 0]
+    by_team = {}
+    for r in recs:
+        s = r["season"]
+        for team, ps in r["starters"].items():
+            by_team.setdefault(team, []).append(r)
+            t = T.setdefault((team, s), {"g": 0, "fb": 0})
+            t["g"] += 1
+            t["fb"] += r["scorer_team"] == team
+            for p in ps:
+                d = P.setdefault((p, team, s), {"gs": 0, "fb": 0, "fs": 0, "tw": 0, "tn": 0})
+                d["gs"] += 1
+                d["fb"] += r["scorer"] == p
+                d["fs"] += r["first_fga"].get(team) == p
+                if r["tip"]:
+                    d["tn"] += 1
+                    d["tw"] += r["tip"] == team
+                players_by_team.setdefault((team, s), set()).add(p)
+        if r["jumpers"] and r["tip"]:
+            for j, team in r["jumpers"]:
+                tip_n[j] = tip_n.get(j, 0) + 1
+                tip_w[j] = tip_w.get(j, 0) + (r["tip"] == team)
+            if r["scorer_team"]:
+                tip_first[0] += r["scorer_team"] == r["tip"]
+                tip_first[1] += 1
+    p_first = tip_first[0] / tip_first[1] if tip_first[1] else 0.66      # the tip winner scores first this often
+    usual = {}                                                          # each team's usual jumper: most jumps in its last 10 games
+    for team, rs in by_team.items():
+        c = {}
+        for r in rs[-10:]:
+            for j, jt in (r["jumpers"] or []):
+                if jt == team:
+                    c[j] = c.get(j, 0) + 1
+        if c:
+            j, n = max(c.items(), key=lambda kv: kv[1])
+            if n >= 2:
+                usual[team] = j
+
+    d = df.sort_values("sw")
+    fga_pg = d.groupby("athlete_id").tail(20).groupby("athlete_id").fga.mean()
+    t60 = d.groupby("athlete_id").tail(60).groupby("athlete_id")
+    fg_made, fg_att = t60.fgm.sum(), t60.fga.sum()
+    starts5 = d.groupby("athlete_id").tail(5).groupby("athlete_id").starter.sum()
+    min8 = d.groupby("athlete_id").tail(8).groupby("athlete_id").minutes.mean()
+    out_ids = {aid for aid, v in inj_map.items() if v.get("status") in ("Out", "Doubtful")}
+
+    def projected(team):                    # the five who usually start (last 5 games), skipping anyone ruled out
+        cand = [(float(starts5.get(aid, 0)), float(min8.get(aid, 0)), aid)
+                for aid in latest[latest.team == team].index if str(aid) not in out_ids]
+        cand.sort(reverse=True)
+        return [a for _, _, a in cand[:5]]
+
+    def sums(pid, team, seasons):
+        gs = fb = fs = tw = tn = 0
+        for s in seasons:
+            x = P.get((pid, team, s))
+            if x:
+                gs += x["gs"]; fb += x["fb"]; fs += x["fs"]; tw += x["tw"]; tn += x["tn"]
+        return gs, fb, fs, tw, tn
+
+    def team_sums(team, seasons):
+        g = fb = 0
+        for s in seasons:
+            x = T.get((team, s))
+            if x:
+                g += x["g"]; fb += x["fb"]
+        return g, fb
+
+    def rank_of(team, seasons, fb_count):   # 1st = most first baskets on his team (ties share a rank)
+        counts = {p: sums(p, team, seasons)[1] for s in seasons for p in players_by_team.get((team, s), ())}
+        return 1 + sum(1 for c in counts.values() if c > fb_count)
+
+    def tip_rate(j):
+        return (tip_w.get(j, 0) + 5) / (tip_n.get(j, 0) + 10)
+
+    views = (("cur", [season]), ("last", [last_season]), ("both", [season, last_season]))
+    rows, gout = [], []
+    for g in games:
+        home, away = g["home"], g["away"]
+        lineups = {home: projected(home), away: projected(away)}
+        if any(len(v) < 5 for v in lineups.values()):
+            continue
+        jh, ja = usual.get(home), usual.get(away)
+        rh, ra = (tip_rate(jh) if jh else 0.5), (tip_rate(ja) if ja else 0.5)
+        q_home = rh * (1 - ra) / (rh * (1 - ra) + (1 - rh) * ra)
+        q = {home: q_home, away: 1 - q_home}
+        sf = {t: q[t] * p_first + (1 - q[t]) * (1 - p_first) for t in q}
+        scores = {}
+        for team in (home, away):
+            for aid in lineups[team]:
+                fga = float(fga_pg.get(aid, 8.0))
+                fga = fga if fga == fga and fga > 1 else 8.0
+                gs_all, _, fs_all, _, _ = sums(aid, team, [season, last_season])
+                share = (fs_all + 40 * 0.2) / (gs_all + 40)
+                fgp = (float(fg_made.get(aid, 0)) + 0.46 * 30) / (float(fg_att.get(aid, 0)) + 30)
+                scores[(team, aid)] = sf[team] * fga ** 0.5 * share ** 0.5 * fgp
+        tot = sum(scores.values())
+        for (team, aid), sc in scores.items():
+            v = {}
+            for vn, seasons in views:
+                gs, fb, fs, tw, tn = sums(aid, team, seasons)
+                tg, tfb = team_sums(team, seasons)
+                v[vn] = [gs, round(tw / tn * 100, 1) if tn else None, round(fs / gs * 100, 1) if gs else None, fb,
+                         round(fb / gs * 100, 1) if gs else None, rank_of(team, seasons, fb) if gs else None, tfb, tg]
+            fga = float(fga_pg.get(aid, 8.0))
+            rows.append({"g": g["id"], "pid": aid, "n": latest.loc[aid, "name"], "t": team, "o": away if team == home else home,
+                         "h": 1 if team == home else 0,
+                         "img": latest.loc[aid, "headshot"] if isinstance(latest.loc[aid, "headshot"], str) else None,
+                         "c": round(sc / tot * 100, 2), "fga": round(fga, 1) if fga == fga else None, "v": v})
+        def jinfo(j):
+            return None if not j else {"n": latest.loc[j, "name"] if j in latest.index else None,
+                                       "r": round(tip_rate(j) * 100), "k": tip_n.get(j, 0)}
+        gout.append({"id": g["id"], "q": {home: round(q[home] * 100), away: round(q[away] * 100)},
+                     "sf": {home: round(sf[home] * 100), away: round(sf[away] * 100)},
+                     "j": {home: jinfo(jh), away: jinfo(ja)}})
+    return {"season": season, "last_season": last_season, "p_first": round(p_first, 3), "recorded_games": len(recs),
+            "games": gout, "rows": rows}
+
+
 def build_board():
     print(f"NBA: fetching history (prior season {LAST_SEASON}, current season {CUR_SEASON})...")
     frames = [f for f in (load_history(LAST_SEASON), load_history(CUR_SEASON)) if not f.empty]
@@ -831,8 +1038,13 @@ def build_board():
                 recent_players[f"{def_team}|{pos}|{mkey}"] = [
                     [x.name, x.team, round(float(getattr(x, mkey)), 1), x.sw] for x in rows_rp.itertuples()]
 
+    try:
+        first_basket = first_basket_board(df, latest, games, inj_map, SEASON)
+    except Exception as e:                      # never let this extra table break the whole NBA board
+        print(f"NBA: first-basket table failed, skipping it: {e}")
+        first_basket = None
     board = {"season": SEASON, "games": games, "props": rows, "dvp": dvp, "recent": recent,
-             "recent_players": recent_players, "rot": rot,
+             "recent_players": recent_players, "rot": rot, "first_basket": first_basket,
              "inj_week": 0, "built": time.time(), "has_key": bool(load_sgo_key()),
              "odds_pulled": sgo.get("pulled"), "odds_remaining": None,
              "has_proline_key": bool(proline.load_key()), "proline_pulled": sgo.get("proline_pulled")}
