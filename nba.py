@@ -758,6 +758,13 @@ def first_basket_board(df, latest, games, inj_map, season):
     The exponents were fitted on last season's games (held-out top pick: right 17% of the time vs 10% for a coin flip
     among starters, average top chance shown 15.5%)."""
     recs = load_first_basket_games()
+    # ESPN files the All-Star game under a made-up team ("WORLD" ...) as a regular-season game: only real teams count
+    seen = {}
+    for r in recs:
+        for t in r["starters"]:
+            seen[t] = seen.get(t, 0) + 1
+    real = {t for t, c in seen.items() if c >= 10}
+    recs = [r for r in recs if all(t in real for t in r["starters"])]
     if not recs:
         return None
     last_season = season - 1
@@ -772,8 +779,9 @@ def first_basket_board(df, latest, games, inj_map, season):
             t["g"] += 1
             t["fb"] += r["scorer_team"] == team
             for p in ps:
-                d = P.setdefault((p, team, s), {"gs": 0, "fb": 0, "fs": 0, "tw": 0, "tn": 0})
+                d = P.setdefault((p, team, s), {"gs": 0, "fb": 0, "fs": 0, "tw": 0, "tn": 0, "tf": 0})
                 d["gs"] += 1
+                d["tf"] += r["scorer_team"] == team            # his team scored first in a game HE started
                 d["fb"] += r["scorer"] == p
                 d["fs"] += r["first_fga"].get(team) == p
                 if r["tip"]:
@@ -815,12 +823,12 @@ def first_basket_board(df, latest, games, inj_map, season):
         return [a for _, _, a in cand[:5]]
 
     def sums(pid, team, seasons):
-        gs = fb = fs = tw = tn = 0
+        gs = fb = fs = tw = tn = tf = 0
         for s in seasons:
             x = P.get((pid, team, s))
             if x:
-                gs += x["gs"]; fb += x["fb"]; fs += x["fs"]; tw += x["tw"]; tn += x["tn"]
-        return gs, fb, fs, tw, tn
+                gs += x["gs"]; fb += x["fb"]; fs += x["fs"]; tw += x["tw"]; tn += x["tn"]; tf += x["tf"]
+        return gs, fb, fs, tw, tn, tf
 
     def team_sums(team, seasons):
         g = fb = 0
@@ -854,7 +862,7 @@ def first_basket_board(df, latest, games, inj_map, season):
             for aid in lineups[team]:
                 fga = float(fga_pg.get(aid, 8.0))
                 fga = fga if fga == fga and fga > 1 else 8.0
-                gs_all, _, fs_all, _, _ = sums(aid, team, [season, last_season])
+                gs_all, _, fs_all = sums(aid, team, [season, last_season])[:3]
                 share = (fs_all + 40 * 0.2) / (gs_all + 40)
                 fgp = (float(fg_made.get(aid, 0)) + 0.46 * 30) / (float(fg_att.get(aid, 0)) + 30)
                 scores[(team, aid)] = sf[team] * fga ** 0.5 * share ** 0.5 * fgp
@@ -862,10 +870,12 @@ def first_basket_board(df, latest, games, inj_map, season):
         for (team, aid), sc in scores.items():
             v = {}
             for vn, seasons in views:
-                gs, fb, fs, tw, tn = sums(aid, team, seasons)
-                tg, tfb = team_sums(team, seasons)
+                gs, fb, fs, tw, tn, tf = sums(aid, team, seasons)
+                tg, _ = team_sums(team, seasons)
+                # [games started, tip win %, 1st shot %, 1st baskets made, made per game started, rank on team,
+                #  team 1st baskets in games HE started, team games played (for the early-season note)]
                 v[vn] = [gs, round(tw / tn * 100, 1) if tn else None, round(fs / gs * 100, 1) if gs else None, fb,
-                         round(fb / gs * 100, 1) if gs else None, rank_of(team, seasons, fb) if gs else None, tfb, tg]
+                         round(fb / gs * 100, 1) if gs else None, rank_of(team, seasons, fb) if gs else None, tf, tg]
             fga = float(fga_pg.get(aid, 8.0))
             rows.append({"g": g["id"], "pid": aid, "n": latest.loc[aid, "name"], "t": team, "o": away if team == home else home,
                          "h": 1 if team == home else 0,

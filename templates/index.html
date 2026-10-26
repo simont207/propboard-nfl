@@ -2322,11 +2322,13 @@ function fbRowHtml(r) {
     <td>${r.h ? 'vs.' : 'at'} ${esc(r.o)}</td>
     <td><div class="fb-ch">${r.c.toFixed(1)}%</div><div class="fb-bar"><i style="width:${Math.min(100, r.c / 18 * 100)}%"></i></div></td>
     <td>${v[0]}</td><td>${pct(v[1])}</td><td>${pct(v[2])}</td>
-    <td>${v[3]}${v[6] ? ` <span class="muted">of ${v[6]}</span>` : ''}</td><td>${pct(v[4])}</td><td>${v[5] ? ord(v[5]) : '–'}</td><td>${v[6]}</td></tr>`;
+    <td>${v[3]}</td><td>${pct(v[4])}</td><td>${v[5] ? ord(v[5]) : '–'}</td><td>${v[6]}</td></tr>`;
 }
 function fbTableHtml(rows) {
   const arrow = k => FB.sort === k ? (FB.dir < 0 ? ' ▼' : ' ▲') : '';
-  const th = (k, label) => `<th data-fbk="${k}" title="Click to sort">${label}${arrow(k)}</th>`;
+  const tips = { fb: 'Times he made the game\'s first basket', tfb: 'Times his team made the game\'s first basket in games he started',
+    fbg: 'First baskets made per game he started', shot: 'How often he takes his team\'s first shot', tip: 'How often his team wins the opening tip in games he started' };
+  const th = (k, label) => `<th data-fbk="${k}" title="${tips[k] ? tips[k] + ' · ' : ''}Click to sort">${label}${arrow(k)}</th>`;
   return `<div class="fbwrap"><table class="fbt"><thead><tr><th class="l" style="cursor:default">Player</th><th style="cursor:default">Matchup</th>
     ${th('c', 'Chance')}${th('gs', 'Gms started')}${th('tip', 'Tip win %')}${th('shot', '1st shot %')}${th('fb', '1st baskets made')}${th('fbg', '1st basket / gms')}
     ${th('rank', '1st basket rank')}${th('tfb', 'Team 1st baskets')}</tr></thead>
