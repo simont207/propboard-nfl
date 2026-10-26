@@ -2293,7 +2293,7 @@ function renderBestOfDay() {
 const FB = { view: 'both', game: '', sort: 'c', dir: -1 };
 const FB_VIEWS = [['both', 'Both seasons'], ['cur', 'This season'], ['last', 'Last season']];
 const FB_SORT = { gs: r => r.v[FB.view][0], tip: r => r.v[FB.view][1], shot: r => r.v[FB.view][2], fb: r => r.v[FB.view][3],
-  fbg: r => r.v[FB.view][4], rank: r => r.v[FB.view][5], tfb: r => r.v[FB.view][6], c: r => r.c };
+  fbg: r => r.v[FB.view][4], rank: r => r.v.cur[5], tfb: r => r.v[FB.view][6], c: r => r.c };   // rank is always this season
 let FB_IDX = null;
 function fbProp(r) {          // one of his props for this game (for the player-page link and his injury tag)
   if (!FB_IDX || FB_IDX.board !== board) {
@@ -2322,16 +2322,16 @@ function fbRowHtml(r) {
     <td>${r.h ? 'vs.' : 'at'} ${esc(r.o)}</td>
     <td><div class="fb-ch">${r.c.toFixed(1)}%</div><div class="fb-bar"><i style="width:${Math.min(100, r.c / 18 * 100)}%"></i></div></td>
     <td>${v[0]}</td><td>${pct(v[1])}</td><td>${pct(v[2])}</td>
-    <td>${v[3]}</td><td>${pct(v[4])}</td><td>${v[5] ? ord(v[5]) : '–'}</td><td>${v[6]}</td></tr>`;
+    <td>${v[3]}</td><td>${pct(v[4])}</td><td>${r.v.cur[5] ? ord(r.v.cur[5]) : '–'}</td><td>${v[6]}</td></tr>`;
 }
 function fbTableHtml(rows) {
   const arrow = k => FB.sort === k ? (FB.dir < 0 ? ' ▼' : ' ▲') : '';
   const tips = { fb: 'Times he made the game\'s first basket', tfb: 'Times his team made the game\'s first basket in games he started',
-    fbg: 'First baskets made per game he started', shot: 'How often he takes his team\'s first shot', tip: 'How often his team wins the opening tip in games he started' };
+    fbg: 'First baskets made per game he started', rank: 'Rank among his team\'s players by first baskets made THIS season only (ties share a rank)', shot: 'How often he takes his team\'s first shot', tip: 'How often his team wins the opening tip in games he started' };
   const th = (k, label) => `<th data-fbk="${k}" title="${tips[k] ? tips[k] + ' · ' : ''}Click to sort">${label}${arrow(k)}</th>`;
   return `<div class="fbwrap"><table class="fbt"><thead><tr><th class="l" style="cursor:default">Player</th><th style="cursor:default">Matchup</th>
     ${th('c', 'Chance')}${th('gs', 'Gms started')}${th('tip', 'Tip win %')}${th('shot', '1st shot %')}${th('fb', '1st baskets made')}${th('fbg', '1st basket / gms')}
-    ${th('rank', '1st basket rank')}${th('tfb', 'Team 1st baskets')}</tr></thead>
+    ${th('rank', '1st basket rank (this yr)')}${th('tfb', 'Team 1st baskets')}</tr></thead>
     <tbody>${fbRows(rows).map(fbRowHtml).join('')}</tbody></table></div>`;
 }
 function fbControlsHtml(games) {
