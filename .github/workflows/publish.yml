@@ -59,15 +59,14 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-latest
     env:
-      # SITE KEPT PRIVATE at Simon's request (2026-10-24): the public website is offline and he uses the
-      # app only on his Mac (double-click start.command). Any past timestamp makes build_static.py publish
-      # the plain "offline" page and skip all data/odds fetching. This workflow is also DISABLED in GitHub
-      # (gh workflow disable) so nothing runs. To put the site back online: `gh workflow enable
-      # publish.yml`, delete this TAKEDOWN_AT line, push.
-      TAKEDOWN_AT: "2026-10-01T00:00:00Z"
       # Only set on the once-daily 13:00 UTC run or a manual dispatch — never on every push, or on the
       # 3-hourly runs, which would blow past the free tier's monthly credit budget.
       SGO_API_KEY: ${{ (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 13 * * *') && secrets.SGO_API_KEY || '' }}
+      # Prop-Line (real sportsbook lines for NFL/NBA/NHL + injury tags). Every build pulls once (about 8-10 of the
+      # free 1,000 requests a day, so even a dozen builds a day is far under budget). Without the secret the pull is
+      # skipped and the site publishes with estimated lines only. Add it once with:
+      #   gh secret set PROPLINE_API_KEY --repo <owner>/<repo> < data/proline_key.txt
+      PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -110,6 +109,13 @@ jobs:
           path: data/sgo_odds.json
           key: sgo-odds-${{ github.run_id }}
           restore-keys: sgo-odds-
+      # Last good Prop-Line pull for NFL (NBA's and NHL's sit inside their data/ caches above), so one failed
+      # pull doesn't drop the site back to estimated lines until the next build.
+      - uses: actions/cache@v4
+        with:
+          path: data/proline_odds.json
+          key: proline-odds-${{ github.run_id }}
+          restore-keys: proline-odds-
       # Same reasoning as the SGO odds cache above -- without this every run fetches all ~20 outdoor
       # games' weather from scratch instead of only the ones that changed or are newly in range.
       - uses: actions/cache@v4
